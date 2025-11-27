@@ -24,7 +24,6 @@ private:
     struct AdvOverride
     {
         QString program; // interpreter or executable override
-        QString entry;   // runtime entry override
     };
 
 private slots:

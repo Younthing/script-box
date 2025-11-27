@@ -185,7 +185,6 @@ void MainWindow::handleRunClicked()
 
     const AdvOverride ov = m_advOverrides.value(tool.id, {});
     req.interpreterOverride = ov.program;
-    req.entryOverride = ov.entry;
 
     m_core->runTool(m_toolsRoot, tool, req);
 }
@@ -256,26 +255,6 @@ void MainWindow::handleAdvancedClicked()
     progRow->setLayout(progLayout);
     layout->addWidget(progRow);
 
-    auto *entryRow = new QWidget(&dialog);
-    auto *entryLayout = new QHBoxLayout(entryRow);
-    entryLayout->setContentsMargins(0, 0, 0, 0);
-    auto *entryEdit = new QLineEdit(entryRow);
-    entryEdit->setPlaceholderText(tr("可选：覆盖 runtime.entry"));
-    entryEdit->setText(ov.entry);
-    auto *entryBrowse = new QPushButton(tr("选择"), entryRow);
-    connect(entryBrowse, &QPushButton::clicked, &dialog, [this, entryEdit]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("选择入口脚本/可执行"));
-        if (!path.isEmpty())
-        {
-            entryEdit->setText(path);
-        }
-    });
-    entryLayout->addWidget(new QLabel(tr("入口路径"), entryRow));
-    entryLayout->addWidget(entryEdit, 1);
-    entryLayout->addWidget(entryBrowse);
-    entryRow->setLayout(entryLayout);
-    layout->addWidget(entryRow);
-
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     layout->addWidget(buttons);
     connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -284,7 +263,6 @@ void MainWindow::handleAdvancedClicked()
     if (dialog.exec() == QDialog::Accepted)
     {
         ov.program = progEdit->text().trimmed();
-        ov.entry = entryEdit->text().trimmed();
         m_advOverrides.insert(tool.id, ov);
         saveOverride(tool.id, ov);
         updateAdvSummary(tool, ov);
@@ -294,10 +272,8 @@ void MainWindow::handleAdvancedClicked()
 void MainWindow::updateAdvSummary(const ToolDTO &tool, const AdvOverride &ov)
 {
     Q_UNUSED(tool);
-    QStringList parts;
-    parts << (ov.program.isEmpty() ? tr("程序: 默认") : tr("程序: %1").arg(ov.program));
-    parts << (ov.entry.isEmpty() ? tr("入口: 默认") : tr("入口: %1").arg(ov.entry));
-    m_advSummary->setText(parts.join(QStringLiteral(" | ")));
+    const QString text = ov.program.isEmpty() ? tr("程序: 默认") : tr("程序: %1").arg(ov.program);
+    m_advSummary->setText(text);
 }
 
 MainWindow::AdvOverride MainWindow::loadOverride(const QString &toolId)
@@ -305,7 +281,6 @@ MainWindow::AdvOverride MainWindow::loadOverride(const QString &toolId)
     AdvOverride ov;
     m_settings.beginGroup(QStringLiteral("toolOverrides/%1").arg(toolId));
     ov.program = m_settings.value(QStringLiteral("program")).toString();
-    ov.entry = m_settings.value(QStringLiteral("entry")).toString();
     m_settings.endGroup();
     return ov;
 }
@@ -314,7 +289,6 @@ void MainWindow::saveOverride(const QString &toolId, const AdvOverride &ov)
 {
     m_settings.beginGroup(QStringLiteral("toolOverrides/%1").arg(toolId));
     m_settings.setValue(QStringLiteral("program"), ov.program);
-    m_settings.setValue(QStringLiteral("entry"), ov.entry);
     m_settings.endGroup();
 }
 

@@ -101,7 +101,6 @@ struct RunRequestDTO
     QList<RunParamValueDTO> params;
     QString runDirectory; // optional override
     QString interpreterOverride; // optional override for interpreter/executable
-    QString entryOverride;       // optional override for runtime.entry
 };
 
 struct ScanResultDTO
