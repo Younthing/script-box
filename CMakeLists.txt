@@ -6,8 +6,8 @@ if(NOT DEFINED APP_VERSION)
     set(APP_VERSION "0.1.0")
 endif()
 if(NOT DEFINED UPDATE_FEED_URL)
-    # Default to GitHub Releases; override with -DUPDATE_FEED_URL=...
-    set(UPDATE_FEED_URL "https://github.com/OWNER/REPO/releases/latest/download/update.json")
+    # Default to GitHub Releases of Younthing/script-box; override with -DUPDATE_FEED_URL=...
+    set(UPDATE_FEED_URL "https://github.com/Younthing/script-box/releases/latest/download/update.json")
 endif()
 
 set(CMAKE_AUTOMOC ON)
