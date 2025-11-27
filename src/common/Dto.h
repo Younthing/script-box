@@ -2,6 +2,7 @@
 
 #include <QList>
 #include <QMap>
+#include <QMetaType>
 #include <QString>
 #include <QStringList>
 
@@ -74,6 +75,7 @@ struct RunRequestDTO
     QString toolVersion;
     QList<RunParamValueDTO> params;
     QString runDirectory;
+    QString workdir;
 };
 
 struct ScanResultDTO
@@ -83,3 +85,23 @@ struct ScanResultDTO
 
     bool ok() const { return error.isEmpty(); }
 };
+
+inline ParamType paramTypeFromString(const QString &value)
+{
+    const QString lowered = value.trimmed().toLower();
+    if (lowered == "file") return ParamType::File;
+    if (lowered == "dir") return ParamType::Dir;
+    if (lowered == "select") return ParamType::Select;
+    if (lowered == "int") return ParamType::Int;
+    if (lowered == "float") return ParamType::Float;
+    if (lowered == "text") return ParamType::Text;
+    if (lowered == "bool") return ParamType::Bool;
+    return ParamType::Unknown;
+}
+
+Q_DECLARE_METATYPE(ParamDTO)
+Q_DECLARE_METATYPE(EnvConfigDTO)
+Q_DECLARE_METATYPE(ToolDTO)
+Q_DECLARE_METATYPE(RunParamValueDTO)
+Q_DECLARE_METATYPE(RunRequestDTO)
+Q_DECLARE_METATYPE(ScanResultDTO)

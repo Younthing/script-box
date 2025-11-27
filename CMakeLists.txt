@@ -17,6 +17,10 @@ add_executable(simpleqt WIN32
     src/core/CoreService.h
     src/core/workers/SelfTestWorker.cpp
     src/core/workers/SelfTestWorker.h
+    src/core/workers/ScanWorker.cpp
+    src/core/workers/ScanWorker.h
+    src/core/workers/JobWorker.cpp
+    src/core/workers/JobWorker.h
 )
 
 target_include_directories(simpleqt PRIVATE src)

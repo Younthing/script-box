@@ -1,6 +1,7 @@
 # CMake/Qt build output
 /build/
 /cmake-build-*/
+/runs/
 
 # Visual Studio Code (keep tracked workspace configs)
 .vscode/*
