@@ -10,5 +10,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
-add_executable(simpleqt WIN32 main.cpp)
+add_executable(simpleqt WIN32
+    main.cpp
+    src/common/Dto.h
+    src/core/CoreService.cpp
+    src/core/CoreService.h
+    src/core/workers/SelfTestWorker.cpp
+    src/core/workers/SelfTestWorker.h
+)
+
+target_include_directories(simpleqt PRIVATE src)
 target_link_libraries(simpleqt PRIVATE Qt6::Widgets)
