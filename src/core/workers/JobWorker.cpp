@@ -76,6 +76,7 @@ void JobWorker::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunR
 
     const QString runDir = ensureRunDirectory(toolsRoot, tool, request);
 
+    m_notified = false;
     m_process.reset(new QProcess());
     appendArguments(*m_process, tool, request, envPath);
     wireProcessSignals(*m_process, tool.id, runDir);
@@ -233,6 +234,9 @@ void JobWorker::wireProcessSignals(QProcess &process, const QString &toolId, con
                      {
                          stdoutFile->close();
                          stderrFile->close();
+                         if (m_notified)
+                             return;
+                         m_notified = true;
                          const QString message = status == QProcess::NormalExit
                                                      ? QStringLiteral("exit %1").arg(exitCode)
                                                      : QStringLiteral("crashed");
@@ -240,6 +244,9 @@ void JobWorker::wireProcessSignals(QProcess &process, const QString &toolId, con
                      });
 
     QObject::connect(&process, &QProcess::errorOccurred, &process, [this, toolId](QProcess::ProcessError error) {
+        if (m_notified)
+            return;
+        m_notified = true;
         emit jobFinished(toolId, -1, QStringLiteral("Process error: %1").arg(static_cast<int>(error)));
     });
 }

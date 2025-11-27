@@ -5,7 +5,7 @@
 
 namespace
 {
-bool runCommand(const QString &program, const QStringList &args, const QString &workdir, QString &errorOut)
+bool runCommand(const QString &program, const QStringList &args, const QString &workdir, QString &errorOut, int timeoutMs = 60000)
 {
     QProcess process;
     process.setProgram(program);
@@ -16,15 +16,22 @@ bool runCommand(const QString &program, const QStringList &args, const QString &
     }
 
     process.start();
-    process.waitForFinished(-1);
+    if (!process.waitForFinished(timeoutMs))
+    {
+        process.kill();
+        errorOut = QStringLiteral("Command timed out: %1 %2").arg(program, args.join(' '));
+        return false;
+    }
 
     if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0)
     {
-        errorOut = QString::fromUtf8(process.readAllStandardError());
+        const QString stderrText = QString::fromUtf8(process.readAllStandardError());
+        const QString stdoutText = QString::fromUtf8(process.readAllStandardOutput());
+        errorOut = stderrText;
         if (errorOut.isEmpty())
-        {
+            errorOut = stdoutText;
+        if (errorOut.isEmpty())
             errorOut = QStringLiteral("Command failed: %1 %2").arg(program, args.join(' '));
-        }
         return false;
     }
     return true;
@@ -33,7 +40,7 @@ bool runCommand(const QString &program, const QStringList &args, const QString &
 bool commandExists(const QString &program)
 {
     QString err;
-    return runCommand(program, {QStringLiteral("--version")}, QString(), err);
+    return runCommand(program, {QStringLiteral("--version")}, QString(), err, 5000);
 }
 } // namespace
 

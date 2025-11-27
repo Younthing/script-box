@@ -3,7 +3,6 @@
 #include "core/CoreService.h"
 #include "ui/DynamicForm.h"
 
-#include <QCheckBox>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -115,7 +114,7 @@ void MainWindow::handleScanFinished(const ScanResultDTO &result)
 
     for (const auto &tool : result.tools)
     {
-        m_tools.insert(tool.id, tool);
+        m_tools.append(tool);
         m_toolList->addItem(QStringLiteral("%1 (%2)").arg(tool.name, tool.id));
     }
 
@@ -165,8 +164,7 @@ void MainWindow::handleRunClicked()
         return;
     }
 
-    const QString key = m_tools.keys().at(idx);
-    const ToolDTO tool = m_tools.value(key);
+    const ToolDTO tool = m_tools.at(idx);
 
     RunRequestDTO req;
     req.toolId = tool.id;
@@ -175,14 +173,15 @@ void MainWindow::handleRunClicked()
     req.workdir = tool.workdir;
     req.runDirectory = m_outputDirEdit->text();
 
-    if (!m_advInterpreter.isEmpty())
+    const AdvOverride ov = m_advOverrides.value(tool.id, {});
+    if (!ov.interpreter.isEmpty())
     {
-        req.interpreterOverride = m_advInterpreter;
+        req.interpreterOverride = ov.interpreter;
     }
-    if (m_hasUvOverride)
+    if (ov.hasUv)
     {
         req.hasUseUvOverride = true;
-        req.useUvOverride = m_uvOverride;
+        req.useUvOverride = ov.uv;
     }
 
     m_core->runTool(m_toolsRoot, tool, req);
@@ -199,14 +198,10 @@ void MainWindow::handleToolSelectionChanged()
     if (idx < 0 || idx >= m_tools.size())
     {
         m_form->setParams({});
-        m_advInterpreter.clear();
-        m_hasUvOverride = false;
-        m_uvOverride = false;
         m_advSummary->setText(tr("使用工具默认配置"));
         return;
     }
-    const QString key = m_tools.keys().at(idx);
-    loadTool(m_tools.value(key));
+    loadTool(m_tools.at(idx));
 }
 
 void MainWindow::appendLog(const QString &text, bool isError)
@@ -218,10 +213,8 @@ void MainWindow::appendLog(const QString &text, bool isError)
 void MainWindow::loadTool(const ToolDTO &tool)
 {
     m_form->setParams(tool.params);
-    m_advInterpreter.clear();
-    m_hasUvOverride = false;
-    m_uvOverride = false;
-    m_advSummary->setText(tr("使用工具默认配置"));
+    const AdvOverride ov = m_advOverrides.value(tool.id, {});
+    updateAdvSummary(tool, ov);
 }
 
 void MainWindow::handleAdvancedClicked()
@@ -232,8 +225,8 @@ void MainWindow::handleAdvancedClicked()
         appendLog(QStringLiteral("请选择一个工具后再调整高级选项"), true);
         return;
     }
-    const QString key = m_tools.keys().at(idx);
-    const ToolDTO tool = m_tools.value(key);
+    const ToolDTO tool = m_tools.at(idx);
+    AdvOverride ov = m_advOverrides.value(tool.id, {});
     const bool isPython = tool.env.type.toLower() == QStringLiteral("python");
 
     QDialog dialog(this);
@@ -245,7 +238,7 @@ void MainWindow::handleAdvancedClicked()
     interpLayout->setContentsMargins(0, 0, 0, 0);
     auto *interpEdit = new QLineEdit(interpRow);
     interpEdit->setPlaceholderText(tr("自定义解释器路径（留空自动）"));
-    interpEdit->setText(m_advInterpreter);
+    interpEdit->setText(ov.interpreter);
     auto *browseBtn = new QPushButton(tr("选择"), interpRow);
     connect(browseBtn, &QPushButton::clicked, &dialog, [this, interpEdit]() {
         const QString path = QFileDialog::getOpenFileName(this, tr("选择解释器可执行文件"));
@@ -268,9 +261,9 @@ void MainWindow::handleAdvancedClicked()
     uvCombo->addItem(tr("强制使用 uv run"), QStringLiteral("on"));
     uvCombo->addItem(tr("禁用 uv run"), QStringLiteral("off"));
     QString current = QStringLiteral("auto");
-    if (m_hasUvOverride)
+    if (ov.hasUv)
     {
-        current = m_uvOverride ? QStringLiteral("on") : QStringLiteral("off");
+        current = ov.uv ? QStringLiteral("on") : QStringLiteral("off");
     }
     const int idxCombo = uvCombo->findData(current);
     if (idxCombo >= 0)
@@ -290,29 +283,48 @@ void MainWindow::handleAdvancedClicked()
 
     if (dialog.exec() == QDialog::Accepted)
     {
-        m_advInterpreter = interpEdit->text().trimmed();
+        ov.interpreter = interpEdit->text().trimmed();
 
         const QString uvChoice = uvCombo->currentData().toString();
         if (uvChoice == QStringLiteral("auto") || !isPython)
         {
-            m_hasUvOverride = false;
-            m_uvOverride = false;
+            ov.hasUv = false;
+            ov.uv = false;
         }
         else
         {
-            m_hasUvOverride = true;
-            m_uvOverride = (uvChoice == QStringLiteral("on"));
+            ov.hasUv = true;
+            ov.uv = (uvChoice == QStringLiteral("on"));
         }
 
-        QString summary = m_advInterpreter.isEmpty() ? tr("解释器: 默认") : tr("解释器: %1").arg(m_advInterpreter);
+        QString summary = ov.interpreter.isEmpty() ? tr("解释器: 默认") : tr("解释器: %1").arg(ov.interpreter);
         if (isPython)
         {
             summary += tr(" | uv: ");
-            if (!m_hasUvOverride)
-                summary += tr("默认");
+            if (!ov.hasUv)
+                summary += tool.env.useUv ? tr("默认(启用)") : tr("默认(禁用)");
             else
-                summary += m_uvOverride ? tr("强制启用") : tr("禁用");
+                summary += ov.uv ? tr("强制启用") : tr("禁用");
         }
         m_advSummary->setText(summary);
+        m_advOverrides.insert(tool.id, ov);
     }
+}
+
+void MainWindow::updateAdvSummary(const ToolDTO &tool, const AdvOverride &ov)
+{
+    QString summary = tr("使用工具默认配置");
+    if (!ov.interpreter.isEmpty())
+    {
+        summary = tr("解释器: %1").arg(ov.interpreter);
+    }
+    if (tool.env.type.toLower() == QStringLiteral("python"))
+    {
+        summary += tr(" | uv: ");
+        if (!ov.hasUv)
+            summary += tool.env.useUv ? tr("默认(启用)") : tr("默认(禁用)");
+        else
+            summary += ov.uv ? tr("强制启用") : tr("禁用");
+    }
+    m_advSummary->setText(summary);
 }

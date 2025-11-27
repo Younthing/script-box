@@ -20,6 +20,14 @@ class MainWindow : public QMainWindow
 public:
     explicit MainWindow(CoreService *core, const QString &toolsRoot, QWidget *parent = nullptr);
 
+private:
+    struct AdvOverride
+    {
+        QString interpreter;
+        bool hasUv{false};
+        bool uv{false};
+    };
+
 private slots:
     void handleScanFinished(const ScanResultDTO &result);
     void handleJobStarted(const QString &toolId, const QString &runDirectory);
@@ -32,6 +40,7 @@ private slots:
     void handleRefreshClicked();
     void handleToolSelectionChanged();
     void handleAdvancedClicked();
+    void updateAdvSummary(const ToolDTO &tool, const AdvOverride &ov);
 
 private:
     void buildUi();
@@ -49,9 +58,6 @@ private:
     QPushButton *m_advBtn{nullptr};
     QLabel *m_advSummary{nullptr};
 
-    QString m_advInterpreter;
-    bool m_hasUvOverride{false};
-    bool m_uvOverride{false};
-
-    QMap<QString, ToolDTO> m_tools;
+    QMap<QString, AdvOverride> m_advOverrides; // keyed by toolId
+    QList<ToolDTO> m_tools;
 };

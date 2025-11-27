@@ -25,4 +25,5 @@ private:
     void wireProcessSignals(QProcess &process, const QString &toolId, const QString &runDir);
 
     QScopedPointer<QProcess> m_process;
+    bool m_notified{false};
 };
