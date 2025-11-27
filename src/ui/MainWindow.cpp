@@ -363,6 +363,20 @@ void MainWindow::saveOverride(const QString &toolId, const AdvOverride &ov)
     m_settings.endGroup();
 }
 
+namespace
+{
+QString sanitizeLogHtml(const QString &text)
+{
+    QString safe = text;
+    safe.replace(QLatin1Char('&'), QStringLiteral("&amp;"));
+    safe.replace(QLatin1Char('<'), QStringLiteral("&lt;"));
+    safe.replace(QLatin1Char('>'), QStringLiteral("&gt;"));
+    safe.replace(QLatin1Char('\r'), QString());
+    safe.replace(QLatin1Char('\n'), QStringLiteral("<br/>"));
+    return safe;
+}
+}
+
 void MainWindow::handleLogMessage(int level, const QString &category, const QString &message)
 {
     QString prefix;
@@ -385,6 +399,8 @@ void MainWindow::handleLogMessage(int level, const QString &category, const QStr
         prefix = "[LOG]";
         break;
     }
-    const QString line = QStringLiteral("%1 %2 %3").arg(prefix, category, message.toHtmlEscaped());
+    const QString safeCategory = sanitizeLogHtml(category);
+    const QString safeMessage = sanitizeLogHtml(message);
+    const QString line = QStringLiteral("%1 %2 %3").arg(prefix, safeCategory, safeMessage);
     m_log->append(line);
 }

@@ -33,9 +33,11 @@ DynamicForm::DynamicForm(QWidget *parent)
 void DynamicForm::setParams(const QList<ParamDTO> &params)
 {
     // Clear existing widgets
-    while (auto item = m_formLayout->takeAt(0))
+    for (int i = m_formLayout->count() - 1; i >= 0; --i)
     {
-        if (auto w = item->widget())
+        auto *item = m_formLayout->takeAt(i);
+        if (!item) continue;
+        if (auto *w = item->widget())
         {
             w->deleteLater();
         }
