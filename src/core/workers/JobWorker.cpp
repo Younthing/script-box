@@ -8,6 +8,15 @@
 
 namespace
 {
+static QString pythonFromEnv(const QString &envPath)
+{
+#ifdef Q_OS_WIN
+    return QDir(envPath).filePath(QStringLiteral("Scripts/python.exe"));
+#else
+    return QDir(envPath).filePath(QStringLiteral("bin/python"));
+#endif
+}
+
 QStringList buildCliArgs(const RunRequestDTO &request)
 {
     QStringList args;
@@ -36,9 +45,28 @@ QString resolveProgram(const QString &toolDir, const QString &command)
     }
     return program;
 }
+
+QStringList resolveArgs(const QString &toolDir, const QString &command)
+{
+    QStringList parts = QProcess::splitCommand(command);
+    if (parts.isEmpty())
+    {
+        return {};
+    }
+    parts.takeFirst(); // program element
+    if (!parts.isEmpty())
+    {
+        QString &first = parts.first();
+        if (QDir::isRelativePath(first))
+        {
+            first = QDir(toolDir).filePath(first);
+        }
+    }
+    return parts;
+}
 } // namespace
 
-void JobWorker::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunRequestDTO &request)
+void JobWorker::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunRequestDTO &request, const QString &envPath)
 {
     if (m_process && m_process->state() != QProcess::NotRunning)
     {
@@ -49,28 +77,78 @@ void JobWorker::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunR
     const QString runDir = ensureRunDirectory(toolsRoot, tool, request);
 
     m_process.reset(new QProcess());
-    appendArguments(*m_process, tool, request);
+    appendArguments(*m_process, tool, request, envPath);
     wireProcessSignals(*m_process, tool.id, runDir);
 
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("PYTHONHOME"), QString());
+    env.insert(QStringLiteral("PYTHONPATH"), QString());
+
+    if (!envPath.isEmpty())
+    {
+        QString binPath = envPath;
+        if (tool.env.type.toLower() == QStringLiteral("python"))
+        {
+            binPath = QDir(envPath).filePath(QStringLiteral("Scripts"));
+        }
+        env.insert(QStringLiteral("PATH"), binPath + ";" + env.value(QStringLiteral("PATH")));
+    }
     for (auto it = tool.env.envVars.cbegin(); it != tool.env.envVars.cend(); ++it)
     {
         env.insert(it.key(), it.value());
     }
+    env.insert(QStringLiteral("TOOL_OUTPUT_DIR"), runDir);
     m_process->setProcessEnvironment(env);
 
-    const QString program = resolveProgram(QDir(toolsRoot).filePath(tool.id), tool.command);
+    const QString toolDir = QDir(toolsRoot).filePath(tool.id);
+    QString program = resolveProgram(toolDir, tool.command);
+    QStringList commandParts = resolveArgs(toolDir, tool.command);
+
+    const QString envPython = !envPath.isEmpty() ? pythonFromEnv(envPath) : QString();
+    const QString envType = tool.env.type.toLower();
+
+    // overrides
+    QString interpreter = !request.interpreterOverride.isEmpty() ? request.interpreterOverride : tool.env.interpreter;
+    bool useUv = tool.env.useUv;
+    if (request.hasUseUvOverride)
+    {
+        useUv = request.useUvOverride;
+    }
+
+    if (!interpreter.isEmpty())
+    {
+        program = interpreter;
+    }
+    else if (envType == QStringLiteral("python") && !envPython.isEmpty())
+    {
+        program = envPython;
+    }
+
+    if (envType == QStringLiteral("python") && useUv)
+    {
+        QStringList uvArgs;
+        uvArgs << QStringLiteral("run");
+        if (!interpreter.isEmpty())
+        {
+            uvArgs << QStringLiteral("--python") << interpreter;
+        }
+        else if (!envPython.isEmpty())
+        {
+            uvArgs << QStringLiteral("--python") << envPython;
+        }
+        uvArgs << program;
+        uvArgs << commandParts;
+
+        program = QStringLiteral("uv");
+        commandParts = uvArgs;
+    }
+
     if (program.isEmpty())
     {
         emit jobFinished(tool.id, -1, QStringLiteral("Invalid command"));
         return;
     }
 
-    QStringList commandParts = QProcess::splitCommand(tool.command);
-    if (!commandParts.isEmpty())
-    {
-        commandParts.takeFirst(); // remove program element
-    }
     commandParts.append(buildCliArgs(request));
 
     const QString workingDir = request.workdir.isEmpty() ? runDir : QDir(runDir).filePath(request.workdir);
@@ -78,6 +156,13 @@ void JobWorker::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunR
 
     emit jobStarted(tool.id, runDir);
     m_process->start(program, commandParts);
+
+    if (!m_process->waitForStarted(5000))
+    {
+        const QString err = m_process->errorString();
+        emit jobFinished(tool.id, -1, QStringLiteral("Failed to start: %1").arg(err));
+        return;
+    }
 }
 
 void JobWorker::cancel()
@@ -88,7 +173,7 @@ void JobWorker::cancel()
     }
 }
 
-void JobWorker::appendArguments(QProcess &process, const ToolDTO &tool, const RunRequestDTO &request) const
+void JobWorker::appendArguments(QProcess &process, const ToolDTO &tool, const RunRequestDTO &request, const QString &envPath) const
 {
     Q_UNUSED(tool);
     Q_UNUSED(request);
@@ -119,7 +204,8 @@ void JobWorker::wireProcessSignals(QProcess &process, const QString &toolId, con
     stdoutFile->open(QIODevice::WriteOnly | QIODevice::Text);
     stderrFile->open(QIODevice::WriteOnly | QIODevice::Text);
 
-    QObject::connect(&process, &QProcess::readyReadStandardOutput, &process, [this, &process, stdoutFile, toolId]() {
+    QObject::connect(&process, &QProcess::readyReadStandardOutput, &process, [this, &process, stdoutFile, toolId]()
+                     {
         const QByteArray data = process.readAllStandardOutput();
         stdoutFile->write(data);
         stdoutFile->flush();
@@ -128,10 +214,10 @@ void JobWorker::wireProcessSignals(QProcess &process, const QString &toolId, con
         for (const QString &line : lines)
         {
             emit jobOutput(toolId, line.trimmed(), false);
-        }
-    });
+        } });
 
-    QObject::connect(&process, &QProcess::readyReadStandardError, &process, [this, &process, stderrFile, toolId]() {
+    QObject::connect(&process, &QProcess::readyReadStandardError, &process, [this, &process, stderrFile, toolId]()
+                     {
         const QByteArray data = process.readAllStandardError();
         stderrFile->write(data);
         stderrFile->flush();
@@ -140,11 +226,11 @@ void JobWorker::wireProcessSignals(QProcess &process, const QString &toolId, con
         for (const QString &line : lines)
         {
             emit jobOutput(toolId, line.trimmed(), true);
-        }
-    });
+        } });
 
     QObject::connect(&process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), &process,
-                     [this, stdoutFile, stderrFile, toolId](int exitCode, QProcess::ExitStatus status) {
+                     [this, stdoutFile, stderrFile, toolId](int exitCode, QProcess::ExitStatus status)
+                     {
                          stdoutFile->close();
                          stderrFile->close();
                          const QString message = status == QProcess::NormalExit
@@ -152,4 +238,8 @@ void JobWorker::wireProcessSignals(QProcess &process, const QString &toolId, con
                                                      : QStringLiteral("crashed");
                          emit jobFinished(toolId, exitCode, message);
                      });
+
+    QObject::connect(&process, &QProcess::errorOccurred, &process, [this, toolId](QProcess::ProcessError error) {
+        emit jobFinished(toolId, -1, QStringLiteral("Process error: %1").arg(static_cast<int>(error)));
+    });
 }

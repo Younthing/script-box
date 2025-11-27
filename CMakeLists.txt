@@ -21,6 +21,12 @@ add_executable(simpleqt WIN32
     src/core/workers/ScanWorker.h
     src/core/workers/JobWorker.cpp
     src/core/workers/JobWorker.h
+    src/core/workers/EnvWorker.cpp
+    src/core/workers/EnvWorker.h
+    src/ui/MainWindow.cpp
+    src/ui/MainWindow.h
+    src/ui/DynamicForm.cpp
+    src/ui/DynamicForm.h
 )
 
 target_include_directories(simpleqt PRIVATE src)

@@ -1,8 +1,8 @@
 # CMake/Qt build output
 /build/
 /cmake-build-*/
-/runs/
-
+**/runs/
+**/.venv/
 # Visual Studio Code (keep tracked workspace configs)
 .vscode/*
 !.vscode/settings.json

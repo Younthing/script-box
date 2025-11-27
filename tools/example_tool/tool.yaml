@@ -1,0 +1,28 @@
+id: "example_tool"
+name: "示例工具"
+version: "1.0"
+description: "用于扫描测试的示例工具"
+tags:
+  - demo
+  - sample
+
+env:
+  type: python
+  use_uv: true
+  interpreter: ""
+  dependencies:
+    - pandas
+    - numpy
+
+command: "python scripts/run.py"
+workdir: "."
+
+params:
+  - key: "source"
+    label: "源文件"
+    type: file
+    required: true
+  - key: "rows"
+    label: "读取行数"
+    type: int
+    default: 100

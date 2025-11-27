@@ -87,10 +87,10 @@ ToolDTO ScanWorker::parseTool(const QString &toolDirPath, QString &error) const
     dto.command = trimQuotes(readScalar(lines, QStringLiteral("command")));
     dto.workdir = trimQuotes(readScalar(lines, QStringLiteral("workdir")));
 
-    dto.env.type = trimQuotes(readScalar(lines, QStringLiteral("env.type")));
-    dto.env.useUv = readScalar(lines, QStringLiteral("env.use_uv")).toLower() == QStringLiteral("true");
-    dto.env.interpreter = trimQuotes(readScalar(lines, QStringLiteral("env.interpreter")));
-    dto.env.dependencies = readList(lines, QStringLiteral("dependencies"));
+    dto.env.type = trimQuotes(readBlockScalar(lines, QStringLiteral("env"), QStringLiteral("type")));
+    dto.env.useUv = readBlockScalar(lines, QStringLiteral("env"), QStringLiteral("use_uv")).toLower() == QStringLiteral("true");
+    dto.env.interpreter = trimQuotes(readBlockScalar(lines, QStringLiteral("env"), QStringLiteral("interpreter")));
+    dto.env.dependencies = readBlockList(lines, QStringLiteral("env"), QStringLiteral("dependencies"));
 
     dto.params = readParams(lines);
 
@@ -149,6 +149,108 @@ QStringList ScanWorker::readList(const QStringList &lines, const QString &key)
             break;
         }
     }
+    return values;
+}
+
+QString ScanWorker::readBlockScalar(const QStringList &lines, const QString &block, const QString &key)
+{
+    const QString blockHead = QStringLiteral("^\\s*%1:\\s*$").arg(QRegularExpression::escape(block));
+    QRegularExpression blockRe(blockHead);
+    QRegularExpression keyRe(QStringLiteral("^\\s*%1:\\s*(.+)$").arg(QRegularExpression::escape(key)));
+
+    int blockIndent = -1;
+    bool inBlock = false;
+    for (const QString &line : lines)
+    {
+        if (line.trimmed().isEmpty())
+        {
+            continue;
+        }
+
+        const int indent = line.indexOf(QRegularExpression("\\S"));
+        if (!inBlock)
+        {
+            if (blockRe.match(line).hasMatch())
+            {
+                blockIndent = indent;
+                inBlock = true;
+            }
+            continue;
+        }
+
+        if (indent <= blockIndent)
+        {
+            break;
+        }
+
+        const auto match = keyRe.match(line.trimmed());
+        if (match.hasMatch())
+        {
+            return match.captured(1).trimmed();
+        }
+    }
+    return {};
+}
+
+QStringList ScanWorker::readBlockList(const QStringList &lines, const QString &block, const QString &key)
+{
+    QStringList values;
+    const QString blockHead = QStringLiteral("^\\s*%1:\\s*$").arg(QRegularExpression::escape(block));
+    QRegularExpression blockRe(blockHead);
+
+    QRegularExpression keyHead(QStringLiteral("^\\s*%1:\\s*$").arg(QRegularExpression::escape(key)));
+    QRegularExpression itemRe(QStringLiteral("^\\s*-\\s*(.+)$"));
+
+    int blockIndent = -1;
+    int keyIndent = -1;
+    bool inBlock = false;
+    bool inKey = false;
+
+    for (const QString &line : lines)
+    {
+        if (line.trimmed().isEmpty())
+        {
+            continue;
+        }
+
+        const int indent = line.indexOf(QRegularExpression("\\S"));
+        if (!inBlock)
+        {
+            if (blockRe.match(line).hasMatch())
+            {
+                blockIndent = indent;
+                inBlock = true;
+            }
+            continue;
+        }
+
+        if (indent <= blockIndent)
+        {
+            break;
+        }
+
+        if (!inKey)
+        {
+            if (keyHead.match(line).hasMatch())
+            {
+                keyIndent = indent;
+                inKey = true;
+            }
+            continue;
+        }
+
+        if (indent <= keyIndent)
+        {
+            break;
+        }
+
+        const auto itemMatch = itemRe.match(line.trimmed());
+        if (itemMatch.hasMatch())
+        {
+            values << trimQuotes(itemMatch.captured(1).trimmed());
+        }
+    }
+
     return values;
 }
 

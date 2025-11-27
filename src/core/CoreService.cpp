@@ -2,6 +2,7 @@
 
 #include "core/workers/JobWorker.h"
 #include "core/workers/ScanWorker.h"
+#include "core/workers/EnvWorker.h"
 #include "core/workers/SelfTestWorker.h"
 
 #include <QMetaObject>
@@ -14,6 +15,7 @@ CoreService::CoreService(QObject *parent)
     m_workerThread.setObjectName(QStringLiteral("CoreWorker"));
     m_scanThread.setObjectName(QStringLiteral("ScanWorkerThread"));
     m_jobThread.setObjectName(QStringLiteral("JobWorkerThread"));
+    m_envThread.setObjectName(QStringLiteral("EnvWorkerThread"));
 
     qRegisterMetaType<ScanResultDTO>("ScanResultDTO");
     qRegisterMetaType<ToolDTO>("ToolDTO");
@@ -49,6 +51,12 @@ void CoreService::shutdown()
     {
         m_jobThread.quit();
         m_jobThread.wait();
+    }
+
+    if (m_envThread.isRunning())
+    {
+        m_envThread.quit();
+        m_envThread.wait();
     }
 }
 
@@ -86,7 +94,25 @@ void CoreService::runJob(const QString &toolsRoot, const ToolDTO &tool, const Ru
         Qt::QueuedConnection,
         Q_ARG(QString, toolsRoot),
         Q_ARG(ToolDTO, tool),
-        Q_ARG(RunRequestDTO, request));
+        Q_ARG(RunRequestDTO, request),
+        Q_ARG(QString, QString()));
+}
+
+void CoreService::runTool(const QString &toolsRoot, const ToolDTO &tool, const RunRequestDTO &request)
+{
+    ensureEnvWorkerReady();
+    ensureJobWorkerReady();
+
+    PendingJob pending{toolsRoot, tool, request};
+    m_pendingJobs.insert(tool.id, pending);
+
+    emit envPreparing(tool.id);
+    QMetaObject::invokeMethod(
+        m_envWorker,
+        "prepareEnv",
+        Qt::QueuedConnection,
+        Q_ARG(QString, toolsRoot),
+        Q_ARG(ToolDTO, tool));
 }
 
 void CoreService::handleWorkFinished(int id, const QString &payload, const QString &threadName)
@@ -121,6 +147,31 @@ void CoreService::handleJobOutput(const QString &toolId, const QString &line, bo
 void CoreService::handleJobFinished(const QString &toolId, int exitCode, const QString &message)
 {
     emit jobFinished(toolId, exitCode, message);
+}
+
+void CoreService::handleEnvReady(const QString &toolId, const QString &envPath)
+{
+    emit envReady(toolId, envPath);
+
+    if (!m_pendingJobs.contains(toolId))
+    {
+        return;
+    }
+    auto pending = m_pendingJobs.take(toolId);
+    QMetaObject::invokeMethod(
+        m_jobWorker,
+        "runJob",
+        Qt::QueuedConnection,
+        Q_ARG(QString, pending.toolsRoot),
+        Q_ARG(ToolDTO, pending.tool),
+        Q_ARG(RunRequestDTO, pending.request),
+        Q_ARG(QString, envPath));
+}
+
+void CoreService::handleEnvError(const QString &toolId, const QString &message)
+{
+    emit envFailed(toolId, message);
+    m_pendingJobs.remove(toolId);
 }
 
 void CoreService::ensureWorkerReady()
@@ -173,5 +224,23 @@ void CoreService::ensureJobWorkerReady()
     if (!m_jobThread.isRunning())
     {
         m_jobThread.start();
+    }
+}
+
+void CoreService::ensureEnvWorkerReady()
+{
+    if (!m_envWorker)
+    {
+        m_envWorker = new EnvWorker();
+        m_envWorker->moveToThread(&m_envThread);
+
+        connect(&m_envThread, &QThread::finished, m_envWorker, &QObject::deleteLater);
+        connect(m_envWorker, &EnvWorker::envReady, this, &CoreService::handleEnvReady);
+        connect(m_envWorker, &EnvWorker::envError, this, &CoreService::handleEnvError);
+    }
+
+    if (!m_envThread.isRunning())
+    {
+        m_envThread.start();
     }
 }

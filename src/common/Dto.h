@@ -76,6 +76,9 @@ struct RunRequestDTO
     QList<RunParamValueDTO> params;
     QString runDirectory;
     QString workdir;
+    QString interpreterOverride; // optional
+    bool hasUseUvOverride{false};
+    bool useUvOverride{false};
 };
 
 struct ScanResultDTO
