@@ -11,8 +11,8 @@ class QListWidget;
 class QTextEdit;
 class QPushButton;
 class QLineEdit;
-class QCheckBox;
-class QToolButton;
+class QLabel;
+class QComboBox;
 
 class MainWindow : public QMainWindow
 {
@@ -31,6 +31,7 @@ private slots:
     void handleRunClicked();
     void handleRefreshClicked();
     void handleToolSelectionChanged();
+    void handleAdvancedClicked();
 
 private:
     void buildUi();
@@ -45,10 +46,12 @@ private:
     QPushButton *m_runBtn{nullptr};
     QPushButton *m_refreshBtn{nullptr};
     QLineEdit *m_outputDirEdit{nullptr};
-    QLineEdit *m_interpreterEdit{nullptr};
-    QCheckBox *m_useUvCheck{nullptr};
-    QToolButton *m_advToggle{nullptr};
-    QWidget *m_advContent{nullptr};
+    QPushButton *m_advBtn{nullptr};
+    QLabel *m_advSummary{nullptr};
+
+    QString m_advInterpreter;
+    bool m_hasUvOverride{false};
+    bool m_uvOverride{false};
 
     QMap<QString, ToolDTO> m_tools;
 };

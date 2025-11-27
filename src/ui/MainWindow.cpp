@@ -4,15 +4,16 @@
 #include "ui/DynamicForm.h"
 
 #include <QCheckBox>
+#include <QComboBox>
 #include <QFileDialog>
-#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
 #include <QTextEdit>
-#include <QToolButton>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -48,47 +49,18 @@ void MainWindow::buildUi()
     m_form = new DynamicForm(right);
     rightLayout->addWidget(m_form, 2);
 
-    // Collapsible advanced section
-    m_advToggle = new QToolButton(right);
-    m_advToggle->setText(tr("高级选项"));
-    m_advToggle->setCheckable(true);
-    m_advToggle->setChecked(false);
-    m_advToggle->setArrowType(Qt::RightArrow);
-    rightLayout->addWidget(m_advToggle);
-
-    m_advContent = new QWidget(right);
-    auto *advLayout = new QVBoxLayout(m_advContent);
+    // Advanced options trigger + summary
+    auto *advRow = new QWidget(right);
+    auto *advLayout = new QHBoxLayout(advRow);
     advLayout->setContentsMargins(0, 0, 0, 0);
-
-    auto *interpRow = new QWidget(m_advContent);
-    auto *interpLayout = new QHBoxLayout(interpRow);
-    interpLayout->setContentsMargins(0, 0, 0, 0);
-    m_interpreterEdit = new QLineEdit(interpRow);
-    m_interpreterEdit->setPlaceholderText(tr("自定义解释器路径（留空自动）"));
-    auto *interpBtn = new QPushButton(tr("选择解释器"), interpRow);
-    connect(interpBtn, &QPushButton::clicked, this, [this]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("选择解释器可执行文件"));
-        if (!path.isEmpty())
-        {
-            m_interpreterEdit->setText(path);
-        }
-    });
-    interpLayout->addWidget(m_interpreterEdit);
-    interpLayout->addWidget(interpBtn);
-    interpRow->setLayout(interpLayout);
-
-    m_useUvCheck = new QCheckBox(tr("优先使用 uv run"), m_advContent);
-
-    advLayout->addWidget(interpRow);
-    advLayout->addWidget(m_useUvCheck);
-    m_advContent->setLayout(advLayout);
-    m_advContent->setVisible(false);
-    rightLayout->addWidget(m_advContent);
-
-    connect(m_advToggle, &QToolButton::toggled, this, [this](bool checked) {
-        m_advToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
-        m_advContent->setVisible(checked);
-    });
+    m_advBtn = new QPushButton(QStringLiteral("..."), advRow);
+    m_advBtn->setToolTip(tr("高级选项"));
+    m_advBtn->setFixedWidth(36);
+    m_advSummary = new QLabel(tr("使用工具默认配置"), advRow);
+    advLayout->addWidget(m_advBtn, 0, Qt::AlignLeft);
+    advLayout->addWidget(m_advSummary, 1);
+    advRow->setLayout(advLayout);
+    rightLayout->addWidget(advRow);
 
     auto *outputRow = new QWidget(right);
     auto *outputLayout = new QHBoxLayout(outputRow);
@@ -127,6 +99,7 @@ void MainWindow::buildUi()
     connect(m_runBtn, &QPushButton::clicked, this, &MainWindow::handleRunClicked);
     connect(m_refreshBtn, &QPushButton::clicked, this, &MainWindow::handleRefreshClicked);
     connect(m_toolList, &QListWidget::currentRowChanged, this, &MainWindow::handleToolSelectionChanged);
+    connect(m_advBtn, &QPushButton::clicked, this, &MainWindow::handleAdvancedClicked);
 }
 
 void MainWindow::handleScanFinished(const ScanResultDTO &result)
@@ -202,15 +175,14 @@ void MainWindow::handleRunClicked()
     req.workdir = tool.workdir;
     req.runDirectory = m_outputDirEdit->text();
 
-    if (m_advToggle->isChecked())
+    if (!m_advInterpreter.isEmpty())
     {
-        const QString interp = m_interpreterEdit->text().trimmed();
-        if (!interp.isEmpty())
-        {
-            req.interpreterOverride = interp;
-        }
+        req.interpreterOverride = m_advInterpreter;
+    }
+    if (m_hasUvOverride)
+    {
         req.hasUseUvOverride = true;
-        req.useUvOverride = m_useUvCheck->isChecked();
+        req.useUvOverride = m_uvOverride;
     }
 
     m_core->runTool(m_toolsRoot, tool, req);
@@ -227,6 +199,10 @@ void MainWindow::handleToolSelectionChanged()
     if (idx < 0 || idx >= m_tools.size())
     {
         m_form->setParams({});
+        m_advInterpreter.clear();
+        m_hasUvOverride = false;
+        m_uvOverride = false;
+        m_advSummary->setText(tr("使用工具默认配置"));
         return;
     }
     const QString key = m_tools.keys().at(idx);
@@ -242,8 +218,101 @@ void MainWindow::appendLog(const QString &text, bool isError)
 void MainWindow::loadTool(const ToolDTO &tool)
 {
     m_form->setParams(tool.params);
+    m_advInterpreter.clear();
+    m_hasUvOverride = false;
+    m_uvOverride = false;
+    m_advSummary->setText(tr("使用工具默认配置"));
+}
+
+void MainWindow::handleAdvancedClicked()
+{
+    int idx = m_toolList->currentRow();
+    if (idx < 0 || idx >= m_tools.size())
+    {
+        appendLog(QStringLiteral("请选择一个工具后再调整高级选项"), true);
+        return;
+    }
+    const QString key = m_tools.keys().at(idx);
+    const ToolDTO tool = m_tools.value(key);
     const bool isPython = tool.env.type.toLower() == QStringLiteral("python");
-    m_useUvCheck->setVisible(isPython);
-    m_useUvCheck->setChecked(tool.env.useUv);
-    m_interpreterEdit->clear();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("高级选项"));
+    auto *layout = new QVBoxLayout(&dialog);
+
+    auto *interpRow = new QWidget(&dialog);
+    auto *interpLayout = new QHBoxLayout(interpRow);
+    interpLayout->setContentsMargins(0, 0, 0, 0);
+    auto *interpEdit = new QLineEdit(interpRow);
+    interpEdit->setPlaceholderText(tr("自定义解释器路径（留空自动）"));
+    interpEdit->setText(m_advInterpreter);
+    auto *browseBtn = new QPushButton(tr("选择"), interpRow);
+    connect(browseBtn, &QPushButton::clicked, &dialog, [this, interpEdit]() {
+        const QString path = QFileDialog::getOpenFileName(this, tr("选择解释器可执行文件"));
+        if (!path.isEmpty())
+        {
+            interpEdit->setText(path);
+        }
+    });
+    interpLayout->addWidget(new QLabel(tr("解释器"), interpRow));
+    interpLayout->addWidget(interpEdit);
+    interpLayout->addWidget(browseBtn);
+    interpRow->setLayout(interpLayout);
+    layout->addWidget(interpRow);
+
+    auto *uvRow = new QWidget(&dialog);
+    auto *uvLayout = new QHBoxLayout(uvRow);
+    uvLayout->setContentsMargins(0, 0, 0, 0);
+    auto *uvCombo = new QComboBox(uvRow);
+    uvCombo->addItem(tr("遵循工具默认"), QStringLiteral("auto"));
+    uvCombo->addItem(tr("强制使用 uv run"), QStringLiteral("on"));
+    uvCombo->addItem(tr("禁用 uv run"), QStringLiteral("off"));
+    QString current = QStringLiteral("auto");
+    if (m_hasUvOverride)
+    {
+        current = m_uvOverride ? QStringLiteral("on") : QStringLiteral("off");
+    }
+    const int idxCombo = uvCombo->findData(current);
+    if (idxCombo >= 0)
+    {
+        uvCombo->setCurrentIndex(idxCombo);
+    }
+    uvCombo->setEnabled(isPython);
+    uvLayout->addWidget(new QLabel(tr("uv 选项"), uvRow));
+    uvLayout->addWidget(uvCombo, 1);
+    uvRow->setLayout(uvLayout);
+    layout->addWidget(uvRow);
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted)
+    {
+        m_advInterpreter = interpEdit->text().trimmed();
+
+        const QString uvChoice = uvCombo->currentData().toString();
+        if (uvChoice == QStringLiteral("auto") || !isPython)
+        {
+            m_hasUvOverride = false;
+            m_uvOverride = false;
+        }
+        else
+        {
+            m_hasUvOverride = true;
+            m_uvOverride = (uvChoice == QStringLiteral("on"));
+        }
+
+        QString summary = m_advInterpreter.isEmpty() ? tr("解释器: 默认") : tr("解释器: %1").arg(m_advInterpreter);
+        if (isPython)
+        {
+            summary += tr(" | uv: ");
+            if (!m_hasUvOverride)
+                summary += tr("默认");
+            else
+                summary += m_uvOverride ? tr("强制启用") : tr("禁用");
+        }
+        m_advSummary->setText(summary);
+    }
 }

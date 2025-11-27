@@ -15,6 +15,7 @@
   "files.associations": {
     "*.rmd": "markdown",
     "qvboxlayout": "cpp",
-    "qprocessenvironment": "cpp"
+    "qprocessenvironment": "cpp",
+    "qapplication": "cpp"
   }
 }
