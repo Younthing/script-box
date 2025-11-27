@@ -16,9 +16,4 @@ signals:
 
 private:
     ToolDTO parseTool(const QString &toolDirPath, QString &error) const;
-    static QString readScalar(const QStringList &lines, const QString &key);
-    static QStringList readList(const QStringList &lines, const QString &key);
-    static QString readBlockScalar(const QStringList &lines, const QString &block, const QString &key);
-    static QStringList readBlockList(const QStringList &lines, const QString &block, const QString &key);
-    QList<ParamDTO> readParams(const QStringList &lines) const;
 };

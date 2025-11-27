@@ -4,6 +4,7 @@
 
 #include <QMainWindow>
 #include <QMap>
+#include <QSettings>
 
 class CoreService;
 class DynamicForm;
@@ -60,4 +61,9 @@ private:
 
     QMap<QString, AdvOverride> m_advOverrides; // keyed by toolId
     QList<ToolDTO> m_tools;
+
+    QSettings m_settings;
+
+    AdvOverride loadOverride(const QString &toolId);
+    void saveOverride(const QString &toolId, const AdvOverride &ov);
 };

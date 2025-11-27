@@ -4,6 +4,7 @@
 #include "ui/DynamicForm.h"
 
 #include <QComboBox>
+#include <QCoreApplication>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -20,6 +21,7 @@ MainWindow::MainWindow(CoreService *core, const QString &toolsRoot, QWidget *par
     : QMainWindow(parent)
     , m_core(core)
     , m_toolsRoot(toolsRoot)
+    , m_settings(QCoreApplication::organizationName(), QCoreApplication::applicationName())
 {
     buildUi();
 
@@ -77,6 +79,14 @@ void MainWindow::buildUi()
     outputLayout->addWidget(m_outputDirEdit);
     outputLayout->addWidget(outputBtn);
     rightLayout->addWidget(outputRow);
+    const QString savedOutput = m_settings.value(QStringLiteral("outputDir")).toString();
+    if (!savedOutput.isEmpty())
+    {
+        m_outputDirEdit->setText(savedOutput);
+    }
+    connect(m_outputDirEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
+        m_settings.setValue(QStringLiteral("outputDir"), text);
+    });
 
     auto *buttonRow = new QWidget(right);
     auto *buttonLayout = new QHBoxLayout(buttonRow);
@@ -213,7 +223,8 @@ void MainWindow::appendLog(const QString &text, bool isError)
 void MainWindow::loadTool(const ToolDTO &tool)
 {
     m_form->setParams(tool.params);
-    const AdvOverride ov = m_advOverrides.value(tool.id, {});
+    AdvOverride ov = m_advOverrides.value(tool.id, loadOverride(tool.id));
+    m_advOverrides.insert(tool.id, ov);
     updateAdvSummary(tool, ov);
 }
 
@@ -308,6 +319,7 @@ void MainWindow::handleAdvancedClicked()
         }
         m_advSummary->setText(summary);
         m_advOverrides.insert(tool.id, ov);
+        saveOverride(tool.id, ov);
     }
 }
 
@@ -327,4 +339,24 @@ void MainWindow::updateAdvSummary(const ToolDTO &tool, const AdvOverride &ov)
             summary += ov.uv ? tr("强制启用") : tr("禁用");
     }
     m_advSummary->setText(summary);
+}
+
+MainWindow::AdvOverride MainWindow::loadOverride(const QString &toolId)
+{
+    AdvOverride ov;
+    m_settings.beginGroup(QStringLiteral("toolOverrides/%1").arg(toolId));
+    ov.interpreter = m_settings.value(QStringLiteral("interpreter")).toString();
+    ov.hasUv = m_settings.value(QStringLiteral("hasUv"), false).toBool();
+    ov.uv = m_settings.value(QStringLiteral("uv"), false).toBool();
+    m_settings.endGroup();
+    return ov;
+}
+
+void MainWindow::saveOverride(const QString &toolId, const AdvOverride &ov)
+{
+    m_settings.beginGroup(QStringLiteral("toolOverrides/%1").arg(toolId));
+    m_settings.setValue(QStringLiteral("interpreter"), ov.interpreter);
+    m_settings.setValue(QStringLiteral("hasUv"), ov.hasUv);
+    m_settings.setValue(QStringLiteral("uv"), ov.uv);
+    m_settings.endGroup();
 }

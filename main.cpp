@@ -7,6 +7,8 @@
 int main(int argc, char *argv[])
 {
     QApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("ScriptToolbox"));
+    QCoreApplication::setApplicationName(QStringLiteral("ScriptToolbox"));
 
     CoreService core;
     core.start();
