@@ -1,0 +1,47 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Configure (CMake)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "-S",
+        "${workspaceFolder}",
+        "-B",
+        "${workspaceFolder}/build",
+        "-G",
+        "MinGW Makefiles",
+        "-D",
+        "CMAKE_PREFIX_PATH=D:/app/qt/6.10.1/mingw_64"
+      ],
+      "options": {
+        "env": {
+          "PATH": "D:/app/qt/Tools/CMake_64/bin;D:/app/qt/Tools/mingw1310_64/bin;D:/app/qt/6.10.1/mingw_64/bin;${env:PATH}"
+        }
+      },
+      "group": "build",
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "Build (CMake)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build"
+      ],
+      "options": {
+        "env": {
+          "PATH": "D:/app/qt/Tools/CMake_64/bin;D:/app/qt/Tools/mingw1310_64/bin;D:/app/qt/6.10.1/mingw_64/bin;${env:PATH}"
+        }
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "dependsOn": "Configure (CMake)",
+      "problemMatcher": "$gcc"
+    }
+  ]
+}

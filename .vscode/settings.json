@@ -1,0 +1,19 @@
+{
+  "cmake.generator": "MinGW Makefiles",
+  "cmake.buildDirectory": "${workspaceFolder}/build",
+  "cmake.configureSettings": {
+    "CMAKE_PREFIX_PATH": "D:/app/qt/6.10.1/mingw_64"
+  },
+  "cmake.configureEnvironment": {
+    "PATH": "D:/app/qt/Tools/CMake_64/bin;D:/app/qt/Tools/mingw1310_64/bin;D:/app/qt/6.10.1/mingw_64/bin;${env:PATH}"
+  },
+  "cmake.buildEnvironment": {
+    "PATH": "D:/app/qt/Tools/CMake_64/bin;D:/app/qt/Tools/mingw1310_64/bin;D:/app/qt/6.10.1/mingw_64/bin;${env:PATH}"
+  },
+  "cmake.configureOnOpen": true,
+  "cmake.exportCompileCommandsFile": true,
+  "files.associations": {
+    "*.rmd": "markdown",
+    "qvboxlayout": "cpp"
+  }
+}

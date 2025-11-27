@@ -1,0 +1,31 @@
+{
+  "version": 4,
+  "configurations": [
+    {
+      "name": "MinGW-Qt",
+      "includePath": [
+        "${workspaceFolder}/**",
+        "D:/app/qt/6.10.1/mingw_64/include",
+        "D:/app/qt/6.10.1/mingw_64/include/QtWidgets",
+        "D:/app/qt/6.10.1/mingw_64/include/QtGui",
+        "D:/app/qt/6.10.1/mingw_64/include/QtCore"
+      ],
+      "defines": [
+        "_DEBUG",
+        "UNICODE",
+        "_UNICODE"
+      ],
+      "compilerPath": "D:/app/qt/Tools/mingw1310_64/bin/g++.exe",
+      "cStandard": "c17",
+      "cppStandard": "c++17",
+      "intelliSenseMode": "windows-gcc-x64",
+      "browse": {
+        "path": [
+          "${workspaceFolder}/**",
+          "D:/app/qt/6.10.1/mingw_64/include"
+        ],
+        "limitSymbolsToIncludedHeaders": true
+      }
+    }
+  ]
+}

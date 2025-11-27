@@ -1,0 +1,20 @@
+# CMake/Qt build output
+/build/
+/cmake-build-*/
+
+# Visual Studio Code (keep tracked workspace configs)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
+!.vscode/extensions.json
+
+# Common IDE artifacts
+*.user
+*.user.*
+*.autosave
+
+# OS noise
+Thumbs.db
+Desktop.ini
