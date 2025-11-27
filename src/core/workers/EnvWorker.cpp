@@ -1,7 +1,10 @@
 #include "EnvWorker.h"
 
 #include <QDir>
+#include <QLoggingCategory>
 #include <QProcess>
+
+Q_LOGGING_CATEGORY(logEnv, "core.env")
 
 namespace
 {
@@ -56,10 +59,12 @@ void EnvWorker::prepareEnv(const QString &toolsRoot, const ToolDTO &tool)
     if (envType == QStringLiteral("python"))
     {
         ok = ensurePythonEnv(toolDir, tool, envPath, message);
+        qInfo(logEnv) << "prepare python env" << tool.id << "ok" << ok;
     }
     else if (envType == QStringLiteral("r"))
     {
         ok = ensureREnv(toolDir, tool, envPath, message);
+        qInfo(logEnv) << "prepare r env" << tool.id << "ok" << ok;
     }
     else
     {
@@ -72,6 +77,7 @@ void EnvWorker::prepareEnv(const QString &toolsRoot, const ToolDTO &tool)
     }
     else
     {
+        qWarning(logEnv) << "env error" << tool.id << message;
         emit envError(tool.id, message);
     }
 }

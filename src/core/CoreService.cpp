@@ -4,10 +4,14 @@
 #include "core/workers/ScanWorker.h"
 #include "core/workers/EnvWorker.h"
 #include "core/workers/SelfTestWorker.h"
+#include "core/LoggingBridge.h"
 
 #include <QMetaObject>
 #include <QMetaType>
 #include <QThread>
+#include <QLoggingCategory>
+
+Q_LOGGING_CATEGORY(logCore, "core.service")
 
 CoreService::CoreService(QObject *parent)
     : QObject(parent)
@@ -21,6 +25,8 @@ CoreService::CoreService(QObject *parent)
     qRegisterMetaType<ToolDTO>("ToolDTO");
     qRegisterMetaType<RunRequestDTO>("RunRequestDTO");
     qRegisterMetaType<RunParamValueDTO>("RunParamValueDTO");
+
+    LoggingBridge::instance();
 }
 
 CoreService::~CoreService()
@@ -31,10 +37,12 @@ CoreService::~CoreService()
 void CoreService::start()
 {
     ensureWorkerReady();
+    qInfo(logCore) << "CoreService started";
 }
 
 void CoreService::shutdown()
 {
+    qInfo(logCore) << "CoreService shutting down";
     if (m_workerThread.isRunning())
     {
         m_workerThread.quit();
@@ -82,12 +90,14 @@ void CoreService::runSchedulingSelfTest(int taskCount)
 void CoreService::startScan(const QString &toolsRoot)
 {
     ensureScanWorkerReady();
+    qInfo(logCore) << "Start scan" << toolsRoot;
     QMetaObject::invokeMethod(m_scanWorker, "scan", Qt::QueuedConnection, Q_ARG(QString, toolsRoot));
 }
 
 void CoreService::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunRequestDTO &request)
 {
     ensureJobWorkerReady();
+    qInfo(logCore) << "Run job directly" << tool.id;
     QMetaObject::invokeMethod(
         m_jobWorker,
         "runJob",
@@ -107,6 +117,7 @@ void CoreService::runTool(const QString &toolsRoot, const ToolDTO &tool, const R
     m_pendingJobs.insert(tool.id, pending);
 
     emit envPreparing(tool.id);
+    qInfo(logCore) << "Prepare env then run" << tool.id;
     QMetaObject::invokeMethod(
         m_envWorker,
         "prepareEnv",

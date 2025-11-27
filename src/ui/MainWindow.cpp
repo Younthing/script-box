@@ -2,6 +2,7 @@
 
 #include "core/CoreService.h"
 #include "ui/DynamicForm.h"
+#include "core/LoggingBridge.h"
 
 #include <QComboBox>
 #include <QCoreApplication>
@@ -109,6 +110,7 @@ void MainWindow::buildUi()
     connect(m_refreshBtn, &QPushButton::clicked, this, &MainWindow::handleRefreshClicked);
     connect(m_toolList, &QListWidget::currentRowChanged, this, &MainWindow::handleToolSelectionChanged);
     connect(m_advBtn, &QPushButton::clicked, this, &MainWindow::handleAdvancedClicked);
+    connect(LoggingBridge::instance(), &LoggingBridge::logMessage, this, &MainWindow::handleLogMessage);
 }
 
 void MainWindow::handleScanFinished(const ScanResultDTO &result)
@@ -359,4 +361,30 @@ void MainWindow::saveOverride(const QString &toolId, const AdvOverride &ov)
     m_settings.setValue(QStringLiteral("hasUv"), ov.hasUv);
     m_settings.setValue(QStringLiteral("uv"), ov.uv);
     m_settings.endGroup();
+}
+
+void MainWindow::handleLogMessage(int level, const QString &category, const QString &message)
+{
+    QString prefix;
+    switch (level)
+    {
+    case QtDebugMsg:
+        prefix = "[DEBUG]";
+        break;
+    case QtInfoMsg:
+        prefix = "[INFO]";
+        break;
+    case QtWarningMsg:
+        prefix = "<span style='color:#c97a00;'>[WARN]</span>";
+        break;
+    case QtCriticalMsg:
+    case QtFatalMsg:
+        prefix = "<span style='color:red;'>[ERROR]</span>";
+        break;
+    default:
+        prefix = "[LOG]";
+        break;
+    }
+    const QString line = QStringLiteral("%1 %2 %3").arg(prefix, category, message.toHtmlEscaped());
+    m_log->append(line);
 }

@@ -22,6 +22,8 @@ add_library(corelib STATIC
     src/common/Dto.h
     src/core/CoreService.cpp
     src/core/CoreService.h
+    src/core/LoggingBridge.cpp
+    src/core/LoggingBridge.h
     src/core/workers/SelfTestWorker.cpp
     src/core/workers/SelfTestWorker.h
     src/core/workers/ScanWorker.cpp

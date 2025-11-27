@@ -3,8 +3,11 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QLoggingCategory>
 #include <QProcessEnvironment>
 #include <QTextStream>
+
+Q_LOGGING_CATEGORY(logJob, "core.job")
 
 namespace
 {
@@ -164,6 +167,7 @@ void JobWorker::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunR
         emit jobFinished(tool.id, -1, QStringLiteral("Failed to start: %1").arg(err));
         return;
     }
+    qInfo(logJob) << "Started" << tool.id << "program" << program << "args" << commandParts << "runDir" << runDir;
 }
 
 void JobWorker::cancel()
@@ -241,12 +245,15 @@ void JobWorker::wireProcessSignals(QProcess &process, const QString &toolId, con
                                                      ? QStringLiteral("exit %1").arg(exitCode)
                                                      : QStringLiteral("crashed");
                          emit jobFinished(toolId, exitCode, message);
+                         qInfo(logJob) << "Finished" << toolId << "exit" << exitCode << "status" << (status == QProcess::NormalExit);
                      });
 
     QObject::connect(&process, &QProcess::errorOccurred, &process, [this, toolId](QProcess::ProcessError error) {
         if (m_notified)
             return;
         m_notified = true;
-        emit jobFinished(toolId, -1, QStringLiteral("Process error: %1").arg(static_cast<int>(error)));
+        const QString msg = QStringLiteral("Process error: %1").arg(static_cast<int>(error));
+        emit jobFinished(toolId, -1, msg);
+        qWarning(logJob) << "Error" << toolId << msg;
     });
 }

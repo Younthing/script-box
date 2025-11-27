@@ -41,6 +41,7 @@ private slots:
     void handleRefreshClicked();
     void handleToolSelectionChanged();
     void handleAdvancedClicked();
+    void handleLogMessage(int level, const QString &category, const QString &message);
     void updateAdvSummary(const ToolDTO &tool, const AdvOverride &ov);
 
 private:
