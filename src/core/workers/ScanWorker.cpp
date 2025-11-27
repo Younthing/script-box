@@ -19,6 +19,33 @@ QString toQString(const YAML::Node &node, const QString &fallback = QString())
     }
     return fallback;
 }
+
+bool toBool(const YAML::Node &node, bool fallback = false)
+{
+    if (!node)
+    {
+        return fallback;
+    }
+    if (node.IsScalar())
+    {
+        return node.as<bool>(fallback);
+    }
+    return fallback;
+}
+
+QStringList toStringList(const YAML::Node &node)
+{
+    QStringList list;
+    if (!node || !node.IsSequence())
+    {
+        return list;
+    }
+    for (const auto &item : node)
+    {
+        list << QString::fromStdString(item.as<std::string>(""));
+    }
+    return list;
+}
 } // namespace
 
 void ScanWorker::scan(const QString &toolsRoot)
@@ -84,29 +111,74 @@ ToolDTO ScanWorker::parseTool(const QString &toolDirPath, QString &error) const
             }
         }
 
-        dto.command = toQString(root["command"]);
-        dto.workdir = toQString(root["workdir"], QStringLiteral("."));
+        // runtime
+        if (root["runtime"])
+        {
+            const auto runtime = root["runtime"];
+            dto.runtime.type = toQString(runtime["type"]);
+            dto.runtime.entry = toQString(runtime["entry"]);
+            dto.runtime.args = toStringList(runtime["args"]);
+            dto.runtime.shellWrap = toBool(runtime["shell"], toBool(runtime["shell_wrap"], false));
+            dto.runtime.workdir = toQString(runtime["workdir"], QStringLiteral("."));
+            dto.runtime.timeoutSeconds = runtime["timeout"].as<int>(0);
 
+            if (runtime["extra_env"])
+            {
+                for (auto it = runtime["extra_env"].begin(); it != runtime["extra_env"].end(); ++it)
+                {
+                    dto.runtime.extraEnv.insert(QString::fromStdString(it->first.as<std::string>()),
+                                                QString::fromStdString(it->second.as<std::string>("")));
+                }
+            }
+
+            if (runtime["expected_outputs"])
+            {
+                for (const auto &out : runtime["expected_outputs"])
+                {
+                    ExpectedOutputDTO ex;
+                    ex.path = toQString(out["path"]);
+                    ex.label = toQString(out["label"], ex.path);
+                    ex.type = toQString(out["type"], QStringLiteral("file"));
+                    if (!ex.path.isEmpty())
+                    {
+                        dto.runtime.expectedOutputs.append(ex);
+                    }
+                }
+            }
+        }
+        else
+        {
+            dto.runtime.type = QStringLiteral("generic");
+            dto.runtime.entry = toQString(root["command"]); // legacy fallback
+        }
+
+        // env
         if (root["env"])
         {
             const auto env = root["env"];
-            dto.env.type = toQString(env["type"]);
-            dto.env.useUv = env["use_uv"].as<bool>(false);
-            dto.env.interpreter = toQString(env["interpreter"]);
-            if (env["dependencies"])
+            dto.env.strategy = toQString(env["strategy"], toQString(env["type"]));
+            dto.env.interpreterPath = toQString(env["interpreter"], toQString(env["interpreter_path"]));
+            dto.env.dependencies = toStringList(env["dependencies"]);
+            dto.env.cacheDir = toQString(env["cache_dir"]);
+
+            if (env["setup"])
             {
-                for (const auto &dep : env["dependencies"])
-                {
-                    dto.env.dependencies << QString::fromStdString(dep.as<std::string>());
-                }
+                const auto setup = env["setup"];
+                dto.env.setup.command = toQString(setup["command"]);
+                dto.env.setup.shell = toBool(setup["shell"]);
+                dto.env.setup.workdir = toQString(setup["workdir"], QStringLiteral("."));
             }
-            if (env["env_vars"])
+        }
+
+        if (dto.env.cacheDir.isEmpty())
+        {
+            if (dto.runtime.type.toLower() == QStringLiteral("r"))
             {
-                for (auto it = env["env_vars"].begin(); it != env["env_vars"].end(); ++it)
-                {
-                    dto.env.envVars.insert(QString::fromStdString(it->first.as<std::string>()),
-                                           QString::fromStdString(it->second.as<std::string>("")));
-                }
+                dto.env.cacheDir = QStringLiteral(".r-lib");
+            }
+            else if (dto.runtime.type.toLower() == QStringLiteral("python"))
+            {
+                dto.env.cacheDir = QStringLiteral(".venv");
             }
         }
 
@@ -155,9 +227,9 @@ ToolDTO ScanWorker::parseTool(const QString &toolDirPath, QString &error) const
             }
         }
 
-        if (dto.command.isEmpty())
+        if (dto.runtime.entry.isEmpty())
         {
-            error = QStringLiteral("Missing command in %1").arg(yamlPath);
+            error = QStringLiteral("Missing runtime.entry in %1").arg(yamlPath);
         }
     }
     catch (const YAML::Exception &ex)

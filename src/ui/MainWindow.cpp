@@ -4,8 +4,9 @@
 #include "ui/DynamicForm.h"
 #include "core/LoggingBridge.h"
 
-#include <QComboBox>
 #include <QCoreApplication>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -13,8 +14,6 @@
 #include <QListWidget>
 #include <QPushButton>
 #include <QTextEdit>
-#include <QDialog>
-#include <QDialogButtonBox>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -68,7 +67,7 @@ void MainWindow::buildUi()
     auto *outputLayout = new QHBoxLayout(outputRow);
     outputLayout->setContentsMargins(0, 0, 0, 0);
     m_outputDirEdit = new QLineEdit(outputRow);
-    m_outputDirEdit->setPlaceholderText(tr("Optional: choose output/run directory"));
+    m_outputDirEdit->setPlaceholderText(tr("Optional: choose run directory"));
     auto *outputBtn = new QPushButton(tr("Choose Dir"), outputRow);
     connect(outputBtn, &QPushButton::clicked, this, [this]() {
         const QString dir = QFileDialog::getExistingDirectory(this, tr("Select Output Directory"));
@@ -182,19 +181,11 @@ void MainWindow::handleRunClicked()
     req.toolId = tool.id;
     req.toolVersion = tool.version;
     req.params = m_form->collectValues();
-    req.workdir = tool.workdir;
     req.runDirectory = m_outputDirEdit->text();
 
     const AdvOverride ov = m_advOverrides.value(tool.id, {});
-    if (!ov.interpreter.isEmpty())
-    {
-        req.interpreterOverride = ov.interpreter;
-    }
-    if (ov.hasUv)
-    {
-        req.hasUseUvOverride = true;
-        req.useUvOverride = ov.uv;
-    }
+    req.interpreterOverride = ov.program;
+    req.entryOverride = ov.entry;
 
     m_core->runTool(m_toolsRoot, tool, req);
 }
@@ -239,55 +230,51 @@ void MainWindow::handleAdvancedClicked()
         return;
     }
     const ToolDTO tool = m_tools.at(idx);
-    AdvOverride ov = m_advOverrides.value(tool.id, {});
-    const bool isPython = tool.env.type.toLower() == QStringLiteral("python");
+    AdvOverride ov = m_advOverrides.value(tool.id, loadOverride(tool.id));
 
     QDialog dialog(this);
     dialog.setWindowTitle(tr("高级选项"));
     auto *layout = new QVBoxLayout(&dialog);
 
-    auto *interpRow = new QWidget(&dialog);
-    auto *interpLayout = new QHBoxLayout(interpRow);
-    interpLayout->setContentsMargins(0, 0, 0, 0);
-    auto *interpEdit = new QLineEdit(interpRow);
-    interpEdit->setPlaceholderText(tr("自定义解释器路径（留空自动）"));
-    interpEdit->setText(ov.interpreter);
-    auto *browseBtn = new QPushButton(tr("选择"), interpRow);
-    connect(browseBtn, &QPushButton::clicked, &dialog, [this, interpEdit]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("选择解释器可执行文件"));
+    auto *progRow = new QWidget(&dialog);
+    auto *progLayout = new QHBoxLayout(progRow);
+    progLayout->setContentsMargins(0, 0, 0, 0);
+    auto *progEdit = new QLineEdit(progRow);
+    progEdit->setPlaceholderText(tr("可选：指定解释器/可执行程序路径"));
+    progEdit->setText(ov.program);
+    auto *progBrowse = new QPushButton(tr("选择"), progRow);
+    connect(progBrowse, &QPushButton::clicked, &dialog, [this, progEdit]() {
+        const QString path = QFileDialog::getOpenFileName(this, tr("选择可执行文件"));
         if (!path.isEmpty())
         {
-            interpEdit->setText(path);
+            progEdit->setText(path);
         }
     });
-    interpLayout->addWidget(new QLabel(tr("解释器"), interpRow));
-    interpLayout->addWidget(interpEdit);
-    interpLayout->addWidget(browseBtn);
-    interpRow->setLayout(interpLayout);
-    layout->addWidget(interpRow);
+    progLayout->addWidget(new QLabel(tr("程序路径"), progRow));
+    progLayout->addWidget(progEdit, 1);
+    progLayout->addWidget(progBrowse);
+    progRow->setLayout(progLayout);
+    layout->addWidget(progRow);
 
-    auto *uvRow = new QWidget(&dialog);
-    auto *uvLayout = new QHBoxLayout(uvRow);
-    uvLayout->setContentsMargins(0, 0, 0, 0);
-    auto *uvCombo = new QComboBox(uvRow);
-    uvCombo->addItem(tr("遵循工具默认"), QStringLiteral("auto"));
-    uvCombo->addItem(tr("强制使用 uv run"), QStringLiteral("on"));
-    uvCombo->addItem(tr("禁用 uv run"), QStringLiteral("off"));
-    QString current = QStringLiteral("auto");
-    if (ov.hasUv)
-    {
-        current = ov.uv ? QStringLiteral("on") : QStringLiteral("off");
-    }
-    const int idxCombo = uvCombo->findData(current);
-    if (idxCombo >= 0)
-    {
-        uvCombo->setCurrentIndex(idxCombo);
-    }
-    uvCombo->setEnabled(isPython);
-    uvLayout->addWidget(new QLabel(tr("uv 选项"), uvRow));
-    uvLayout->addWidget(uvCombo, 1);
-    uvRow->setLayout(uvLayout);
-    layout->addWidget(uvRow);
+    auto *entryRow = new QWidget(&dialog);
+    auto *entryLayout = new QHBoxLayout(entryRow);
+    entryLayout->setContentsMargins(0, 0, 0, 0);
+    auto *entryEdit = new QLineEdit(entryRow);
+    entryEdit->setPlaceholderText(tr("可选：覆盖 runtime.entry"));
+    entryEdit->setText(ov.entry);
+    auto *entryBrowse = new QPushButton(tr("选择"), entryRow);
+    connect(entryBrowse, &QPushButton::clicked, &dialog, [this, entryEdit]() {
+        const QString path = QFileDialog::getOpenFileName(this, tr("选择入口脚本/可执行"));
+        if (!path.isEmpty())
+        {
+            entryEdit->setText(path);
+        }
+    });
+    entryLayout->addWidget(new QLabel(tr("入口路径"), entryRow));
+    entryLayout->addWidget(entryEdit, 1);
+    entryLayout->addWidget(entryBrowse);
+    entryRow->setLayout(entryLayout);
+    layout->addWidget(entryRow);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     layout->addWidget(buttons);
@@ -296,60 +283,29 @@ void MainWindow::handleAdvancedClicked()
 
     if (dialog.exec() == QDialog::Accepted)
     {
-        ov.interpreter = interpEdit->text().trimmed();
-
-        const QString uvChoice = uvCombo->currentData().toString();
-        if (uvChoice == QStringLiteral("auto") || !isPython)
-        {
-            ov.hasUv = false;
-            ov.uv = false;
-        }
-        else
-        {
-            ov.hasUv = true;
-            ov.uv = (uvChoice == QStringLiteral("on"));
-        }
-
-        QString summary = ov.interpreter.isEmpty() ? tr("解释器: 默认") : tr("解释器: %1").arg(ov.interpreter);
-        if (isPython)
-        {
-            summary += tr(" | uv: ");
-            if (!ov.hasUv)
-                summary += tool.env.useUv ? tr("默认(启用)") : tr("默认(禁用)");
-            else
-                summary += ov.uv ? tr("强制启用") : tr("禁用");
-        }
-        m_advSummary->setText(summary);
+        ov.program = progEdit->text().trimmed();
+        ov.entry = entryEdit->text().trimmed();
         m_advOverrides.insert(tool.id, ov);
         saveOverride(tool.id, ov);
+        updateAdvSummary(tool, ov);
     }
 }
 
 void MainWindow::updateAdvSummary(const ToolDTO &tool, const AdvOverride &ov)
 {
-    QString summary = tr("使用工具默认配置");
-    if (!ov.interpreter.isEmpty())
-    {
-        summary = tr("解释器: %1").arg(ov.interpreter);
-    }
-    if (tool.env.type.toLower() == QStringLiteral("python"))
-    {
-        summary += tr(" | uv: ");
-        if (!ov.hasUv)
-            summary += tool.env.useUv ? tr("默认(启用)") : tr("默认(禁用)");
-        else
-            summary += ov.uv ? tr("强制启用") : tr("禁用");
-    }
-    m_advSummary->setText(summary);
+    Q_UNUSED(tool);
+    QStringList parts;
+    parts << (ov.program.isEmpty() ? tr("程序: 默认") : tr("程序: %1").arg(ov.program));
+    parts << (ov.entry.isEmpty() ? tr("入口: 默认") : tr("入口: %1").arg(ov.entry));
+    m_advSummary->setText(parts.join(QStringLiteral(" | ")));
 }
 
 MainWindow::AdvOverride MainWindow::loadOverride(const QString &toolId)
 {
     AdvOverride ov;
     m_settings.beginGroup(QStringLiteral("toolOverrides/%1").arg(toolId));
-    ov.interpreter = m_settings.value(QStringLiteral("interpreter")).toString();
-    ov.hasUv = m_settings.value(QStringLiteral("hasUv"), false).toBool();
-    ov.uv = m_settings.value(QStringLiteral("uv"), false).toBool();
+    ov.program = m_settings.value(QStringLiteral("program")).toString();
+    ov.entry = m_settings.value(QStringLiteral("entry")).toString();
     m_settings.endGroup();
     return ov;
 }
@@ -357,9 +313,8 @@ MainWindow::AdvOverride MainWindow::loadOverride(const QString &toolId)
 void MainWindow::saveOverride(const QString &toolId, const AdvOverride &ov)
 {
     m_settings.beginGroup(QStringLiteral("toolOverrides/%1").arg(toolId));
-    m_settings.setValue(QStringLiteral("interpreter"), ov.interpreter);
-    m_settings.setValue(QStringLiteral("hasUv"), ov.hasUv);
-    m_settings.setValue(QStringLiteral("uv"), ov.uv);
+    m_settings.setValue(QStringLiteral("program"), ov.program);
+    m_settings.setValue(QStringLiteral("entry"), ov.entry);
     m_settings.endGroup();
 }
 

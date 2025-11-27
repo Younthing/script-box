@@ -7,16 +7,26 @@ tags:
   - plot
   - demo
 
-env:
+runtime:
   type: python
-  use_uv: true
+  entry: "scripts/generate_plot.py"
+  args:
+    - "--title"
+    - "{{params.title}}"
+    - "--points"
+    - "{{params.points}}"
+  shell: false
+  workdir: "."
+  extra_env: {}
+  timeout: 0
+
+env:
+  strategy: uv
   interpreter: ""
   dependencies:
     - matplotlib
     - numpy
-
-command: "python scripts/generate_plot.py"
-workdir: "."
+  cache_dir: ".venv"
 
 params:
   - key: "title"

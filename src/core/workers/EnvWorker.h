@@ -16,6 +16,8 @@ signals:
     void envError(const QString &toolId, const QString &message);
 
 private:
-    bool ensurePythonEnv(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const;
-    bool ensureREnv(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const;
+    bool prepareByStrategy(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const;
+    bool ensureUvEnv(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const;
+    bool ensurePakEnv(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const;
+    bool runSetupCommand(const QString &toolDir, const SetupCommandDTO &setup, QString &message) const;
 };

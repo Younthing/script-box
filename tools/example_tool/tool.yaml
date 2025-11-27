@@ -6,16 +6,26 @@ tags:
   - demo
   - sample
 
-env:
+runtime:
   type: python
-  use_uv: true
+  entry: "scripts/run.py"
+  args:
+    - "--source"
+    - "{{params.source}}"
+    - "--rows"
+    - "{{params.rows}}"
+  shell: false
+  workdir: "."
+  extra_env: {}
+  timeout: 0
+
+env:
+  strategy: uv
   interpreter: ""
   dependencies:
     - pandas
     - numpy
-
-command: "python scripts/run.py"
-workdir: "."
+  cache_dir: ".venv"
 
 params:
   - key: "source"

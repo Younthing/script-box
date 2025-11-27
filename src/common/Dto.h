@@ -41,13 +41,39 @@ struct ParamDTO
     QString description;
 };
 
+struct ExpectedOutputDTO
+{
+    QString path;
+    QString label;
+    QString type; // file | dir | url | other
+};
+
+struct SetupCommandDTO
+{
+    QString command;
+    bool shell{false};
+    QString workdir{"."};
+};
+
+struct RuntimeConfigDTO
+{
+    QString type;          // "python" | "r" | "generic"
+    QString entry;         // script or executable
+    QStringList args;      // templated args
+    bool shellWrap{false}; // whether to wrap with shell
+    QString workdir{"."};  // relative to tool root
+    QMap<QString, QString> extraEnv;
+    int timeoutSeconds{0}; // 0 = unlimited
+    QList<ExpectedOutputDTO> expectedOutputs;
+};
+
 struct EnvConfigDTO
 {
-    QString type; // "python" | "r"
-    bool useUv{false};
-    QString interpreter;
+    QString strategy;             // "uv" | "pak" | "none" | "custom"
+    QString interpreterPath;      // optional interpreter override
     QStringList dependencies;
-    QMap<QString, QString> envVars;
+    QString cacheDir;             // e.g. .venv / .r-lib
+    SetupCommandDTO setup;
 };
 
 struct ToolDTO
@@ -57,9 +83,8 @@ struct ToolDTO
     QString version;
     QString description;
     QStringList tags;
+    RuntimeConfigDTO runtime;
     EnvConfigDTO env;
-    QString command;
-    QString workdir{"."};
     QList<ParamDTO> params;
 };
 
@@ -74,11 +99,9 @@ struct RunRequestDTO
     QString toolId;
     QString toolVersion;
     QList<RunParamValueDTO> params;
-    QString runDirectory;
-    QString workdir;
-    QString interpreterOverride; // optional
-    bool hasUseUvOverride{false};
-    bool useUvOverride{false};
+    QString runDirectory; // optional override
+    QString interpreterOverride; // optional override for interpreter/executable
+    QString entryOverride;       // optional override for runtime.entry
 };
 
 struct ScanResultDTO
@@ -104,6 +127,9 @@ inline ParamType paramTypeFromString(const QString &value)
 
 Q_DECLARE_METATYPE(ParamDTO)
 Q_DECLARE_METATYPE(EnvConfigDTO)
+Q_DECLARE_METATYPE(RuntimeConfigDTO)
+Q_DECLARE_METATYPE(ExpectedOutputDTO)
+Q_DECLARE_METATYPE(SetupCommandDTO)
 Q_DECLARE_METATYPE(ToolDTO)
 Q_DECLARE_METATYPE(RunParamValueDTO)
 Q_DECLARE_METATYPE(RunRequestDTO)

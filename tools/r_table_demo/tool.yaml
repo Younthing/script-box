@@ -7,16 +7,24 @@ tags:
   - table
   - demo
 
-env:
+runtime:
   type: r
-  use_uv: false
+  entry: "scripts/generate_table.R"
+  args:
+    - "--rows={{params.rows}}"
+    - "--focus_region={{params.focus_region}}"
+  shell: false
+  workdir: "."
+  extra_env: {}
+  timeout: 0
+
+env:
+  strategy: pak
   interpreter: ""
   dependencies:
     - tibble
     - dplyr
-
-command: "Rscript scripts/generate_table.R"
-workdir: "."
+  cache_dir: ".r-lib"
 
 params:
   - key: "rows"

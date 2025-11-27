@@ -4,14 +4,16 @@
 #include <QDir>
 #include <QFile>
 #include <QLoggingCategory>
+#include <QProcess>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QTextStream>
 
 Q_LOGGING_CATEGORY(logJob, "core.job")
 
 namespace
 {
-static QString pythonFromEnv(const QString &envPath)
+QString pythonFromEnv(const QString &envPath)
 {
 #ifdef Q_OS_WIN
     return QDir(envPath).filePath(QStringLiteral("Scripts/python.exe"));
@@ -20,52 +22,110 @@ static QString pythonFromEnv(const QString &envPath)
 #endif
 }
 
-QStringList buildCliArgs(const RunRequestDTO &request)
+QString quoteArg(const QString &arg)
+{
+#ifdef Q_OS_WIN
+    QString escaped = arg;
+    escaped.replace('"', QStringLiteral("\\\""));
+    if (escaped.contains(' '))
+    {
+        escaped = QStringLiteral("\"%1\"").arg(escaped);
+    }
+    return escaped;
+#else
+    if (arg.contains(QRegularExpression(QStringLiteral("[\\s\"']"))))
+    {
+        QString escaped = arg;
+        escaped.replace('\'', QStringLiteral("'\"'\"'"));
+        return QStringLiteral("'%1'").arg(escaped);
+    }
+    return arg;
+#endif
+}
+
+QString joinCommandForShell(const QString &program, const QStringList &args)
+{
+    QStringList parts;
+    parts << quoteArg(program);
+    for (const auto &a : args)
+    {
+        parts << quoteArg(a);
+    }
+    return parts.join(QLatin1Char(' '));
+}
+
+QMap<QString, QStringList> toParamMap(const QList<RunParamValueDTO> &params)
+{
+    QMap<QString, QStringList> map;
+    for (const auto &p : params)
+    {
+        map.insert(p.key, p.values);
+    }
+    return map;
+}
+
+QString applyTemplate(QString token,
+                      const QMap<QString, QStringList> &paramMap,
+                      const QString &runDir,
+                      const QString &outputDir,
+                      const QString &toolDir,
+                      const RuntimeConfigDTO &runtime)
+{
+    auto firstParam = [&](const QString &key) {
+        const QStringList vals = paramMap.value(key);
+        return vals.isEmpty() ? QString() : vals.first();
+    };
+
+    token.replace(QStringLiteral("{{run.outputs}}"), outputDir);
+    token.replace(QStringLiteral("{{run.dir}}"), runDir);
+    token.replace(QStringLiteral("{{tool.root}}"), toolDir);
+    token.replace(QStringLiteral("{{runtime.workdir}}"), runtime.workdir);
+
+    QRegularExpression re(QStringLiteral(R"(\{\{\s*params\.([A-Za-z0-9_\-]+)\s*\}\})"));
+    auto it = re.globalMatch(token);
+    while (it.hasNext())
+    {
+        const auto m = it.next();
+        const QString key = m.captured(1);
+        token.replace(m.captured(0), firstParam(key));
+    }
+    return token;
+}
+
+QStringList renderToken(const QString &token,
+                        const QMap<QString, QStringList> &paramMap,
+                        const QString &runDir,
+                        const QString &outputDir,
+                        const QString &toolDir,
+                        const RuntimeConfigDTO &runtime)
+{
+    QRegularExpression single(QStringLiteral(R"(^\{\{\s*params\.([A-Za-z0-9_\-]+)\s*\}\}$)"));
+    const auto m = single.match(token);
+    if (m.hasMatch())
+    {
+        const QStringList vals = paramMap.value(m.captured(1));
+        if (vals.isEmpty())
+        {
+            return {QString()};
+        }
+        return vals;
+    }
+
+    return {applyTemplate(token, paramMap, runDir, outputDir, toolDir, runtime)};
+}
+
+QStringList expandArgs(const RuntimeConfigDTO &runtime,
+                       const QMap<QString, QStringList> &paramMap,
+                       const QString &runDir,
+                       const QString &outputDir,
+                       const QString &toolDir)
 {
     QStringList args;
-    for (const auto &p : request.params)
+    for (const QString &tpl : runtime.args)
     {
-        for (const QString &val : p.values)
-        {
-            args << QStringLiteral("--%1=%2").arg(p.key, val);
-        }
+        args.append(renderToken(tpl, paramMap, runDir, outputDir, toolDir, runtime));
     }
     return args;
-}
-
-QString resolveProgram(const QString &toolDir, const QString &command)
-{
-    QStringList parts = QProcess::splitCommand(command);
-    if (parts.isEmpty())
-    {
-        return {};
-    }
-
-    QString program = parts.takeFirst();
-    if (QDir::isRelativePath(program))
-    {
-        program = QDir(toolDir).filePath(program);
-    }
-    return program;
-}
-
-QStringList resolveArgs(const QString &toolDir, const QString &command)
-{
-    QStringList parts = QProcess::splitCommand(command);
-    if (parts.isEmpty())
-    {
-        return {};
-    }
-    parts.takeFirst(); // program element
-    if (!parts.isEmpty())
-    {
-        QString &first = parts.first();
-        if (QDir::isRelativePath(first))
-        {
-            first = QDir(toolDir).filePath(first);
-        }
-    }
-    return parts;
 }
 } // namespace
 
@@ -78,88 +138,90 @@ void JobWorker::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunR
     }
 
     const QString runDir = ensureRunDirectory(toolsRoot, tool, request);
+    const QString outputDir = QDir(runDir).filePath(QStringLiteral("outputs"));
+    QDir().mkpath(outputDir);
 
     m_notified = false;
     m_process.reset(new QProcess());
-    appendArguments(*m_process, tool, request, envPath);
+    m_process->setProcessChannelMode(QProcess::SeparateChannels);
     wireProcessSignals(*m_process, tool.id, runDir);
 
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.remove(QStringLiteral("PYTHONHOME"));
+    env.remove(QStringLiteral("PYTHONPATH"));
     env.insert(QStringLiteral("PYTHONHOME"), QString());
     env.insert(QStringLiteral("PYTHONPATH"), QString());
+    env.insert(QStringLiteral("TOOL_OUTPUT_DIR"), outputDir);
+    env.insert(QStringLiteral("TOOL_ROOT"), QDir(toolsRoot).filePath(tool.id));
+    env.insert(QStringLiteral("TOOL_RUN_DIR"), runDir);
 
-    if (!envPath.isEmpty())
-    {
-        QString binPath = envPath;
-        if (tool.env.type.toLower() == QStringLiteral("python"))
-        {
-            binPath = QDir(envPath).filePath(QStringLiteral("Scripts"));
-        }
-        env.insert(QStringLiteral("PATH"), binPath + ";" + env.value(QStringLiteral("PATH")));
-    }
-    for (auto it = tool.env.envVars.cbegin(); it != tool.env.envVars.cend(); ++it)
+    for (auto it = tool.runtime.extraEnv.cbegin(); it != tool.runtime.extraEnv.cend(); ++it)
     {
         env.insert(it.key(), it.value());
     }
-    env.insert(QStringLiteral("TOOL_OUTPUT_DIR"), runDir);
-    m_process->setProcessEnvironment(env);
+
+    QString program;
+    QStringList args;
 
     const QString toolDir = QDir(toolsRoot).filePath(tool.id);
-    QString program = resolveProgram(toolDir, tool.command);
-    QStringList commandParts = resolveArgs(toolDir, tool.command);
+    const QString entryPath = QDir(toolDir).filePath(tool.runtime.entry);
+    const QString runtimeType = tool.runtime.type.trimmed().toLower();
+    const QMap<QString, QStringList> paramMap = toParamMap(request.params);
+    const QStringList templatedArgs = expandArgs(tool.runtime, paramMap, runDir, outputDir, toolDir);
 
-    const QString envPython = !envPath.isEmpty() ? pythonFromEnv(envPath) : QString();
-    const QString envType = tool.env.type.toLower();
-
-    // overrides
-    QString interpreter = !request.interpreterOverride.isEmpty() ? request.interpreterOverride : tool.env.interpreter;
-    bool useUv = tool.env.useUv;
-    if (request.hasUseUvOverride)
+    if (runtimeType == QStringLiteral("python"))
     {
-        useUv = request.useUvOverride;
-    }
-
-    if (!interpreter.isEmpty())
-    {
+        const QString interpreter = !tool.env.interpreterPath.isEmpty()
+                                        ? tool.env.interpreterPath
+                                        : (!envPath.isEmpty() ? pythonFromEnv(envPath) : QStringLiteral("python"));
         program = interpreter;
-    }
-    else if (envType == QStringLiteral("python") && !envPython.isEmpty())
-    {
-        program = envPython;
-    }
+        args << entryPath;
+        args << templatedArgs;
 
-    if (envType == QStringLiteral("python") && useUv)
-    {
-        QStringList uvArgs;
-        uvArgs << QStringLiteral("run");
-        if (!interpreter.isEmpty())
+        if (!envPath.isEmpty())
         {
-            uvArgs << QStringLiteral("--python") << interpreter;
+#ifdef Q_OS_WIN
+            const QString binPath = QDir(envPath).filePath(QStringLiteral("Scripts"));
+#else
+            const QString binPath = QDir(envPath).filePath(QStringLiteral("bin"));
+#endif
+            env.insert(QStringLiteral("PATH"), binPath + ";" + env.value(QStringLiteral("PATH")));
+            env.insert(QStringLiteral("VIRTUAL_ENV"), envPath);
         }
-        else if (!envPython.isEmpty())
-        {
-            uvArgs << QStringLiteral("--python") << envPython;
-        }
-        uvArgs << program;
-        uvArgs << commandParts;
-
-        program = QStringLiteral("uv");
-        commandParts = uvArgs;
     }
-
-    if (program.isEmpty())
+    else if (runtimeType == QStringLiteral("r"))
     {
-        emit jobFinished(tool.id, -1, QStringLiteral("Invalid command"));
-        return;
+        program = tool.env.interpreterPath.isEmpty() ? QStringLiteral("Rscript") : tool.env.interpreterPath;
+        args << entryPath;
+        args << templatedArgs;
+        if (!envPath.isEmpty())
+        {
+            env.insert(QStringLiteral("R_LIBS_USER"), envPath);
+        }
+    }
+    else // generic
+    {
+        program = entryPath;
+        args = templatedArgs;
     }
 
-    commandParts.append(buildCliArgs(request));
+    if (tool.runtime.shellWrap)
+    {
+        const QString commandLine = joinCommandForShell(program, args);
+#ifdef Q_OS_WIN
+        program = QStringLiteral("cmd.exe");
+        args = {QStringLiteral("/C"), commandLine};
+#else
+        program = QStringLiteral("sh");
+        args = {QStringLiteral("-c"), commandLine};
+#endif
+    }
 
-    const QString workingDir = request.workdir.isEmpty() ? runDir : QDir(runDir).filePath(request.workdir);
-    m_process->setWorkingDirectory(workingDir);
+    m_process->setProcessEnvironment(env);
+    m_process->setWorkingDirectory(runDir);
 
     emit jobStarted(tool.id, runDir);
-    m_process->start(program, commandParts);
+    m_process->start(program, args);
 
     if (!m_process->waitForStarted(5000))
     {
@@ -167,7 +229,7 @@ void JobWorker::runJob(const QString &toolsRoot, const ToolDTO &tool, const RunR
         emit jobFinished(tool.id, -1, QStringLiteral("Failed to start: %1").arg(err));
         return;
     }
-    qInfo(logJob) << "Started" << tool.id << "program" << program << "args" << commandParts << "runDir" << runDir;
+    qInfo(logJob) << "Started" << tool.id << "program" << program << "args" << args << "runDir" << runDir;
 }
 
 void JobWorker::cancel()
@@ -176,13 +238,6 @@ void JobWorker::cancel()
     {
         m_process->terminate();
     }
-}
-
-void JobWorker::appendArguments(QProcess &process, const ToolDTO &tool, const RunRequestDTO &request, const QString &envPath) const
-{
-    Q_UNUSED(tool);
-    Q_UNUSED(request);
-    process.setProcessChannelMode(QProcess::SeparateChannels);
 }
 
 QString JobWorker::ensureRunDirectory(const QString &toolsRoot, const ToolDTO &tool, const RunRequestDTO &request) const
@@ -196,6 +251,7 @@ QString JobWorker::ensureRunDirectory(const QString &toolsRoot, const ToolDTO &t
 
     QDir().mkpath(runDir);
     QDir(runDir).mkpath(QStringLiteral("logs"));
+    QDir(runDir).mkpath(QStringLiteral("outputs"));
     return QDir(runDir).absolutePath();
 }
 

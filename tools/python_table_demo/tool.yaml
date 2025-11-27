@@ -7,15 +7,25 @@ tags:
   - table
   - demo
 
-env:
+runtime:
   type: python
-  use_uv: true
+  entry: "scripts/generate_table.py"
+  args:
+    - "--rows"
+    - "{{params.rows}}"
+    - "--title"
+    - "{{params.title}}"
+  shell: false
+  workdir: "."
+  extra_env: {}
+  timeout: 0
+
+env:
+  strategy: uv
   interpreter: ""
   dependencies:
     - pandas
-
-command: "python scripts/generate_table.py"
-workdir: "."
+  cache_dir: ".venv"
 
 params:
   - key: "rows"

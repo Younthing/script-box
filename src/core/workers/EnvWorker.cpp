@@ -40,6 +40,33 @@ bool runCommand(const QString &program, const QStringList &args, const QString &
     return true;
 }
 
+bool runCommandString(const QString &command, const QString &workdir, bool useShell, QString &errorOut, int timeoutMs = 60000)
+{
+    if (command.trimmed().isEmpty())
+    {
+        errorOut = QStringLiteral("Empty command");
+        return false;
+    }
+
+    if (useShell)
+    {
+#ifdef Q_OS_WIN
+        return runCommand(QStringLiteral("cmd.exe"), {QStringLiteral("/C"), command}, workdir, errorOut, timeoutMs);
+#else
+        return runCommand(QStringLiteral("sh"), {QStringLiteral("-c"), command}, workdir, errorOut, timeoutMs);
+#endif
+    }
+
+    QStringList parts = QProcess::splitCommand(command);
+    if (parts.isEmpty())
+    {
+        errorOut = QStringLiteral("Invalid command: %1").arg(command);
+        return false;
+    }
+    QString program = parts.takeFirst();
+    return runCommand(program, parts, workdir, errorOut, timeoutMs);
+}
+
 bool commandExists(const QString &program)
 {
     QString err;
@@ -53,23 +80,7 @@ void EnvWorker::prepareEnv(const QString &toolsRoot, const ToolDTO &tool)
     QString envPath;
     QString message;
 
-    const QString envType = tool.env.type.trimmed().toLower();
-    bool ok = true;
-
-    if (envType == QStringLiteral("python"))
-    {
-        ok = ensurePythonEnv(toolDir, tool, envPath, message);
-        qInfo(logEnv) << "prepare python env" << tool.id << "ok" << ok;
-    }
-    else if (envType == QStringLiteral("r"))
-    {
-        ok = ensureREnv(toolDir, tool, envPath, message);
-        qInfo(logEnv) << "prepare r env" << tool.id << "ok" << ok;
-    }
-    else
-    {
-        envPath.clear();
-    }
+    const bool ok = prepareByStrategy(toolDir, tool, envPath, message);
 
     if (ok)
     {
@@ -82,9 +93,50 @@ void EnvWorker::prepareEnv(const QString &toolsRoot, const ToolDTO &tool)
     }
 }
 
-bool EnvWorker::ensurePythonEnv(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const
+bool EnvWorker::prepareByStrategy(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const
 {
-    envPath = QDir(toolDir).filePath(QStringLiteral(".venv"));
+    QString strategy = tool.env.strategy.trimmed().toLower();
+    const QString runtimeType = tool.runtime.type.trimmed().toLower();
+    if (strategy.isEmpty())
+    {
+        if (runtimeType == QStringLiteral("python"))
+            strategy = QStringLiteral("uv");
+        else if (runtimeType == QStringLiteral("r"))
+            strategy = QStringLiteral("pak");
+        else
+            strategy = QStringLiteral("none");
+    }
+
+    bool ok = false;
+    if (strategy == QStringLiteral("uv"))
+    {
+        ok = ensureUvEnv(toolDir, tool, envPath, message);
+    }
+    else if (strategy == QStringLiteral("pak"))
+    {
+        ok = ensurePakEnv(toolDir, tool, envPath, message);
+    }
+    else if (strategy == QStringLiteral("custom"))
+    {
+        envPath = tool.env.cacheDir.isEmpty() ? QString() : QDir(toolDir).filePath(tool.env.cacheDir);
+        ok = runSetupCommand(toolDir, tool.env.setup, message);
+    }
+    else // none or unknown
+    {
+        envPath = tool.env.cacheDir.isEmpty() ? QString() : QDir(toolDir).filePath(tool.env.cacheDir);
+        ok = tool.env.setup.command.isEmpty() ? true : runSetupCommand(toolDir, tool.env.setup, message);
+    }
+
+    if (!ok && message.isEmpty())
+    {
+        message = QStringLiteral("Unknown env strategy: %1").arg(strategy);
+    }
+    return ok;
+}
+
+bool EnvWorker::ensureUvEnv(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const
+{
+    envPath = QDir(toolDir).filePath(tool.env.cacheDir.isEmpty() ? QStringLiteral(".venv") : tool.env.cacheDir);
 
     if (!commandExists(QStringLiteral("uv")))
     {
@@ -100,7 +152,7 @@ bool EnvWorker::ensurePythonEnv(const QString &toolDir, const ToolDTO &tool, QSt
         }
     }
 
-    QStringList deps = tool.env.dependencies;
+    const QStringList deps = tool.env.dependencies;
     if (!deps.isEmpty())
     {
         QStringList args{QStringLiteral("pip"), QStringLiteral("install")};
@@ -111,12 +163,16 @@ bool EnvWorker::ensurePythonEnv(const QString &toolDir, const ToolDTO &tool, QSt
         }
     }
 
+    if (!tool.env.setup.command.isEmpty())
+    {
+        return runSetupCommand(toolDir, tool.env.setup, message);
+    }
     return true;
 }
 
-bool EnvWorker::ensureREnv(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const
+bool EnvWorker::ensurePakEnv(const QString &toolDir, const ToolDTO &tool, QString &envPath, QString &message) const
 {
-    envPath = QDir(toolDir).filePath(QStringLiteral(".r-lib"));
+    envPath = QDir(toolDir).filePath(tool.env.cacheDir.isEmpty() ? QStringLiteral(".r-lib") : tool.env.cacheDir);
 
     if (!commandExists(QStringLiteral("Rscript")))
     {
@@ -126,25 +182,44 @@ bool EnvWorker::ensureREnv(const QString &toolDir, const ToolDTO &tool, QString 
 
     QDir().mkpath(envPath);
 
-    if (tool.env.dependencies.isEmpty())
+    if (!tool.env.dependencies.isEmpty())
+    {
+        QStringList quoted;
+        for (const auto &dep : tool.env.dependencies)
+        {
+            quoted << QStringLiteral("\"%1\"").arg(dep);
+        }
+        const QString depExpr = QStringLiteral("c(%1)").arg(quoted.join(','));
+        const QString script = QStringLiteral("if(!requireNamespace('pak', quietly=TRUE)) install.packages('pak'); pak::pkg_install(%1, lib='%2')").arg(depExpr, envPath.replace("\\", "/"));
+
+        QString err;
+        if (!runCommand(QStringLiteral("Rscript"), {QStringLiteral("-e"), script}, toolDir, err))
+        {
+            message = err;
+            return false;
+        }
+    }
+
+    if (!tool.env.setup.command.isEmpty())
+    {
+        return runSetupCommand(toolDir, tool.env.setup, message);
+    }
+
+    return true;
+}
+
+bool EnvWorker::runSetupCommand(const QString &toolDir, const SetupCommandDTO &setup, QString &message) const
+{
+    if (setup.command.isEmpty())
     {
         return true;
     }
-
-    QStringList quoted;
-    for (const auto &dep : tool.env.dependencies)
-    {
-        quoted << QStringLiteral("\"%1\"").arg(dep);
-    }
-    const QString depExpr = QStringLiteral("c(%1)").arg(quoted.join(','));
-    const QString script = QStringLiteral("if(!requireNamespace('pak', quietly=TRUE)) install.packages('pak'); pak::pkg_install(%1, lib='%2')").arg(depExpr, envPath.replace("\\", "/"));
-
     QString err;
-    if (!runCommand(QStringLiteral("Rscript"), {QStringLiteral("-e"), script}, toolDir, err))
+    const QString workdir = QDir(toolDir).filePath(setup.workdir.isEmpty() ? QStringLiteral(".") : setup.workdir);
+    if (!runCommandString(setup.command, workdir, setup.shell, err))
     {
         message = err;
         return false;
     }
-
     return true;
 }

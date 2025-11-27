@@ -20,7 +20,6 @@ signals:
     void jobFinished(const QString &toolId, int exitCode, const QString &message);
 
 private:
-    void appendArguments(QProcess &process, const ToolDTO &tool, const RunRequestDTO &request, const QString &envPath) const;
     QString ensureRunDirectory(const QString &toolsRoot, const ToolDTO &tool, const RunRequestDTO &request) const;
     void wireProcessSignals(QProcess &process, const QString &toolId, const QString &runDir);
 

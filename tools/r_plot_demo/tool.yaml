@@ -7,15 +7,23 @@ tags:
   - plot
   - demo
 
-env:
+runtime:
   type: r
-  use_uv: false
+  entry: "scripts/generate_plot.R"
+  args:
+    - "--title={{params.title}}"
+    - "--points={{params.points}}"
+  shell: false
+  workdir: "."
+  extra_env: {}
+  timeout: 0
+
+env:
+  strategy: pak
   interpreter: ""
   dependencies:
     - ggplot2
-
-command: "Rscript scripts/generate_plot.R"
-workdir: "."
+  cache_dir: ".r-lib"
 
 params:
   - key: "title"

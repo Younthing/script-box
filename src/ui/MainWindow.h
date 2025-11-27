@@ -13,7 +13,6 @@ class QTextEdit;
 class QPushButton;
 class QLineEdit;
 class QLabel;
-class QComboBox;
 
 class MainWindow : public QMainWindow
 {
@@ -24,9 +23,8 @@ public:
 private:
     struct AdvOverride
     {
-        QString interpreter;
-        bool hasUv{false};
-        bool uv{false};
+        QString program; // interpreter or executable override
+        QString entry;   // runtime entry override
     };
 
 private slots:
