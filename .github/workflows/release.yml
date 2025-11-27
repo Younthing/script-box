@@ -1,0 +1,103 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      BUILD_TYPE: Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compute version/urls
+        id: meta
+        shell: pwsh
+        run: |
+          $ref = "${{ github.ref_name }}"
+          if ([string]::IsNullOrWhiteSpace($ref)) {
+            $ref = "nightly-${{ github.run_number }}"
+          }
+          if ($ref.StartsWith("v")) { $ref = $ref.Substring(1) }
+          $zipUrl = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/ScriptToolbox.zip"
+          "version=$ref" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "zip_url=$zipUrl" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Install Qt (MinGW)
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.7.2"
+          host: windows
+          target: desktop
+          arch: win64_mingw
+          tools: "tools_mingw1310_64"
+          cache: true
+
+      - name: Add MinGW to PATH
+        shell: pwsh
+        run: |
+          if (-not $env:IQTA_TOOLS_MINGW1310_64_DIR) { throw "Missing IQTA_TOOLS_MINGW1310_64_DIR from install-qt-action" }
+          "$($env:IQTA_TOOLS_MINGW1310_64_DIR)\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "CMAKE_MAKE_PROGRAM=$($env:IQTA_TOOLS_MINGW1310_64_DIR)\bin\mingw32-make.exe" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Get-Command mingw32-make.exe | Out-String | Write-Host
+
+      - name: Configure
+        shell: pwsh
+        run: >
+          cmake -S . -B build -G "MinGW Makefiles"
+          -D CMAKE_BUILD_TYPE=$env:BUILD_TYPE
+          -D CMAKE_PREFIX_PATH=$env:Qt6_DIR
+          -D APP_VERSION=${{ steps.meta.outputs.version }}
+          -D UPDATE_FEED_URL=https://github.com/${{ github.repository }}/releases/latest/download/update.json
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build build --config $env:BUILD_TYPE -j 4
+
+      - name: Package (zip)
+        shell: pwsh
+        run: |
+          $qtRoot = (Get-Item $env:Qt6_DIR).Parent.Parent.Parent.FullName
+          pwsh -File scripts/package.ps1 -QtDir $qtRoot -BuildDir build -OutputDir dist/ScriptToolbox -Zip -SkipBuild
+
+      - name: Generate update manifest
+        shell: pwsh
+        run: |
+          $version = "${{ steps.meta.outputs.version }}"
+          $url = "${{ steps.meta.outputs.zip_url }}"
+          $notes = "${{ github.event.head_commit.message }}"
+          if ([string]::IsNullOrWhiteSpace($notes)) {
+            $notes = "Automated release $($version)"
+          }
+          $json = [ordered]@{
+            version = $version
+            url      = $url
+            notes    = $notes
+          } | ConvertTo-Json -Depth 3
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $json | Out-File -FilePath "dist/update.json" -Encoding utf8
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ScriptToolbox-windows
+          path: |
+            dist/ScriptToolbox.zip
+            dist/update.json
+
+      - name: Attach zip to release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/ScriptToolbox.zip
+            dist/update.json

@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.21)
 project(SimpleQtApp LANGUAGES CXX)
 
+# Application version; can be overridden by -DAPP_VERSION=1.2.3 (used for update feed)
+if(NOT DEFINED APP_VERSION)
+    set(APP_VERSION "0.1.0")
+endif()
+if(NOT DEFINED UPDATE_FEED_URL)
+    # Default to GitHub Releases; override with -DUPDATE_FEED_URL=...
+    set(UPDATE_FEED_URL "https://github.com/OWNER/REPO/releases/latest/download/update.json")
+endif()
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -8,7 +17,9 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
+add_compile_definitions(APP_VERSION="${APP_VERSION}" UPDATE_FEED_URL="${UPDATE_FEED_URL}")
+
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core Network)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -46,7 +57,7 @@ add_library(uilib STATIC
     src/ui/ToolWindow.h
 )
 target_include_directories(uilib PUBLIC src)
-target_link_libraries(uilib PUBLIC Qt6::Widgets corelib)
+target_link_libraries(uilib PUBLIC Qt6::Widgets Qt6::Network corelib)
 set_target_properties(uilib PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON)
 
 add_executable(simpleqt WIN32 main.cpp)

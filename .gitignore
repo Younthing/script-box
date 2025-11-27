@@ -1,5 +1,6 @@
 # CMake/Qt build output
 /build/
+/dist/
 /cmake-build-*/
 **/runs/
 **/.venv/

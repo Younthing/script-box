@@ -3,12 +3,14 @@
   "configurations": [
     {
       "name": "MinGW-Qt",
+      "compileCommands": "${workspaceFolder}/build/compile_commands.json",
       "includePath": [
         "${workspaceFolder}/**",
         "D:/app/qt/6.10.1/mingw_64/include",
         "D:/app/qt/6.10.1/mingw_64/include/QtWidgets",
         "D:/app/qt/6.10.1/mingw_64/include/QtGui",
-        "D:/app/qt/6.10.1/mingw_64/include/QtCore"
+        "D:/app/qt/6.10.1/mingw_64/include/QtCore",
+        "D:/app/qt/6.10.1/mingw_64/include/QtNetwork"
       ],
       "defines": [
         "_DEBUG",
@@ -22,7 +24,8 @@
       "browse": {
         "path": [
           "${workspaceFolder}/**",
-          "D:/app/qt/6.10.1/mingw_64/include"
+          "D:/app/qt/6.10.1/mingw_64/include",
+          "D:/app/qt/6.10.1/mingw_64/include/QtNetwork"
         ],
         "limitSymbolsToIncludedHeaders": true
       }

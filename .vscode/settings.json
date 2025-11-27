@@ -16,6 +16,11 @@
     "*.rmd": "markdown",
     "qvboxlayout": "cpp",
     "qprocessenvironment": "cpp",
-    "qapplication": "cpp"
+    "qapplication": "cpp",
+    "qprocess": "cpp",
+    "qlabel": "cpp",
+    "qlineedit": "cpp",
+    "qlistwidget": "cpp",
+    "qdir": "cpp"
   }
 }

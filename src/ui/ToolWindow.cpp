@@ -17,11 +17,7 @@
 #include <QWidget>
 
 ToolWindow::ToolWindow(CoreService *core, const QString &toolsRoot, const ToolDTO &tool, QWidget *parent)
-    : QMainWindow(parent)
-    , m_core(core)
-    , m_toolsRoot(toolsRoot)
-    , m_tool(tool)
-    , m_settings(QCoreApplication::organizationName(), QCoreApplication::applicationName())
+    : QMainWindow(parent), m_core(core), m_toolsRoot(toolsRoot), m_tool(tool), m_settings(QCoreApplication::organizationName(), QCoreApplication::applicationName())
 {
     m_override = loadOverride();
     buildUi();
@@ -72,13 +68,13 @@ void ToolWindow::buildUi()
     m_outputDirEdit = new QLineEdit(outRow);
     m_outputDirEdit->setPlaceholderText(tr("可选：运行输出目录"));
     auto *outBtn = new QPushButton(tr("选择"), outRow);
-    connect(outBtn, &QPushButton::clicked, this, [this]() {
+    connect(outBtn, &QPushButton::clicked, this, [this]()
+            {
         const QString dir = QFileDialog::getExistingDirectory(this, tr("选择运行目录"));
         if (!dir.isEmpty())
         {
             m_outputDirEdit->setText(dir);
-        }
-    });
+        } });
     outLayout->addWidget(new QLabel(tr("运行目录"), outRow));
     outLayout->addWidget(m_outputDirEdit, 1);
     outLayout->addWidget(outBtn);
@@ -134,13 +130,13 @@ void ToolWindow::handleAdvancedClicked()
     progEdit->setPlaceholderText(tr("可选：指定解释器/可执行程序路径"));
     progEdit->setText(ov.program);
     auto *progBrowse = new QPushButton(tr("选择"), progRow);
-    connect(progBrowse, &QPushButton::clicked, &dialog, [this, progEdit]() {
+    connect(progBrowse, &QPushButton::clicked, &dialog, [this, progEdit]()
+            {
         const QString path = QFileDialog::getOpenFileName(this, tr("选择可执行文件"));
         if (!path.isEmpty())
         {
             progEdit->setText(path);
-        }
-    });
+        } });
     progLayout->addWidget(new QLabel(tr("程序路径"), progRow));
     progLayout->addWidget(progEdit, 1);
     progLayout->addWidget(progBrowse);

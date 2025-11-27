@@ -3,7 +3,10 @@
 #include "core/CoreService.h"
 #include "ui/ToolWindow.h"
 
+#include <QApplication>
+#include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QIcon>
@@ -12,25 +15,42 @@
 #include <QListWidgetItem>
 #include <QListView>
 #include <QMessageBox>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QProcess>
 #include <QPushButton>
+#include <QStandardPaths>
+#include <QStringConverter>
 #include <QVBoxLayout>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTextStream>
+#include <QTimer>
 #include <QWidget>
 
 namespace
 {
-const QString kAllCategory = QStringLiteral("全部");
+    const QString kAllCategory = QStringLiteral("全部");
+    const QString kUpdateEnvVar = QStringLiteral("SCRIPT_TOOLBOX_UPDATE_URL");
+#ifndef UPDATE_FEED_URL
+#define UPDATE_FEED_URL "https://your.cdn/ScriptToolbox/update.json"
+#endif
+    const QString kDefaultUpdateUrl = QStringLiteral(UPDATE_FEED_URL);
+    const QString kUpdateButtonIdle = QStringLiteral("检查更新");
 } // namespace
 
 MainWindow::MainWindow(CoreService *core, const QString &toolsRoot, QWidget *parent)
-    : QMainWindow(parent)
-    , m_core(core)
-    , m_toolsRoot(toolsRoot)
+    : QMainWindow(parent), m_core(core), m_toolsRoot(toolsRoot)
 {
     buildUi();
 
     connect(m_core, &CoreService::scanFinished, this, &MainWindow::handleScanFinished);
 
     handleRefreshClicked();
+
+    // Do a light-weight auto check shortly after startup.
+    QTimer::singleShot(1500, this, [this]()
+                       { checkForUpdates(false); });
 }
 
 void MainWindow::buildUi()
@@ -55,10 +75,12 @@ void MainWindow::buildUi()
     toolbarLayout->setSpacing(6);
 
     m_summaryLabel = new QLabel(tr("工具：0"), toolbar);
+    m_updateBtn = new QPushButton(kUpdateButtonIdle, toolbar);
     m_refreshBtn = new QPushButton(tr("刷新"), toolbar);
     m_toggleViewBtn = new QPushButton(tr("切换列表/卡片"), toolbar);
 
     toolbarLayout->addWidget(m_summaryLabel, 1);
+    toolbarLayout->addWidget(m_updateBtn, 0);
     toolbarLayout->addWidget(m_toggleViewBtn, 0);
     toolbarLayout->addWidget(m_refreshBtn, 0);
     toolbar->setLayout(toolbarLayout);
@@ -74,6 +96,7 @@ void MainWindow::buildUi()
     setCentralWidget(central);
 
     connect(m_refreshBtn, &QPushButton::clicked, this, &MainWindow::handleRefreshClicked);
+    connect(m_updateBtn, &QPushButton::clicked, this, &MainWindow::handleUpdateClicked);
     connect(m_categoryList, &QListWidget::currentRowChanged, this, &MainWindow::handleCategoryChanged);
     connect(m_toolList, &QListWidget::itemDoubleClicked, this, &MainWindow::handleToolActivated);
     connect(m_toggleViewBtn, &QPushButton::clicked, this, &MainWindow::handleToggleView);
@@ -120,6 +143,237 @@ void MainWindow::handleToggleView()
 {
     m_cardMode = !m_cardMode;
     rebuildToolList();
+}
+
+void MainWindow::handleUpdateClicked()
+{
+    checkForUpdates(true);
+}
+
+QString MainWindow::resolveUpdateUrl() const
+{
+    const QByteArray override = qgetenv(kUpdateEnvVar.toUtf8().constData());
+    if (!override.isEmpty())
+    {
+        return QString::fromUtf8(override);
+    }
+    return kDefaultUpdateUrl;
+}
+
+void MainWindow::resetUpdateButton()
+{
+    if (m_updateBtn)
+    {
+        m_updateBtn->setEnabled(true);
+        m_updateBtn->setText(kUpdateButtonIdle);
+    }
+}
+
+void MainWindow::checkForUpdates(bool manual)
+{
+    const QUrl feed(resolveUpdateUrl());
+    if (!feed.isValid())
+    {
+        if (manual)
+        {
+            QMessageBox::warning(this, tr("检查更新"), tr("更新地址无效，请检查配置。"));
+        }
+        return;
+    }
+
+    m_updateBtn->setEnabled(false);
+    m_updateBtn->setText(tr("检查中..."));
+
+    auto *reply = m_network.get(QNetworkRequest(feed));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, manual]()
+            {
+        const auto err = reply->error();
+        const QByteArray body = reply->readAll();
+        reply->deleteLater();
+
+        if (err != QNetworkReply::NoError)
+        {
+            if (manual)
+            {
+                QMessageBox::warning(this, tr("检查更新"), reply->errorString());
+            }
+            resetUpdateButton();
+            return;
+        }
+
+        QJsonParseError jsonErr;
+        const QJsonDocument doc = QJsonDocument::fromJson(body, &jsonErr);
+        if (jsonErr.error != QJsonParseError::NoError || !doc.isObject())
+        {
+            if (manual)
+            {
+                QMessageBox::warning(this, tr("检查更新"), tr("返回的更新信息格式不正确。"));
+            }
+            resetUpdateButton();
+            return;
+        }
+
+        const QJsonObject obj = doc.object();
+        m_latestMeta.version = QVersionNumber::fromString(obj.value(QStringLiteral("version")).toString());
+        m_latestMeta.url = QUrl(obj.value(QStringLiteral("url")).toString());
+        m_latestMeta.notes = obj.value(QStringLiteral("notes")).toString();
+
+        if (!m_latestMeta.valid())
+        {
+            if (manual)
+            {
+                QMessageBox::warning(this, tr("检查更新"), tr("更新信息缺少 version/url 字段。"));
+            }
+            resetUpdateButton();
+            return;
+        }
+
+        QVersionNumber current = QVersionNumber::fromString(QCoreApplication::applicationVersion());
+        if (current.isNull())
+        {
+            current = QVersionNumber(0, 0, 0);
+        }
+
+        if (QVersionNumber::compare(m_latestMeta.version, current) <= 0)
+        {
+            if (manual)
+            {
+                QMessageBox::information(this, tr("检查更新"), tr("当前已是最新版本（%1）。").arg(current.toString()));
+            }
+            resetUpdateButton();
+            return;
+        }
+
+        const QString notes = m_latestMeta.notes.isEmpty() ? tr("暂无更新说明。") : m_latestMeta.notes;
+        const QString message = tr("发现新版本：%1\n当前版本：%2\n\n%3\n\n现在下载并更新吗？")
+                                    .arg(m_latestMeta.version.toString(), current.toString(), notes);
+        const auto choice = QMessageBox::question(this, tr("检查更新"), message, QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+        if (choice == QMessageBox::Yes)
+        {
+            downloadUpdate(m_latestMeta.url, m_latestMeta.version);
+        }
+        else
+        {
+            resetUpdateButton();
+        } });
+}
+
+void MainWindow::downloadUpdate(const QUrl &url, const QVersionNumber &remoteVersion)
+{
+    m_updateBtn->setEnabled(false);
+    m_updateBtn->setText(tr("下载中..."));
+
+    auto *reply = m_network.get(QNetworkRequest(url));
+    connect(reply, &QNetworkReply::downloadProgress, this, [this](qint64 received, qint64 total)
+            {
+        if (!m_updateBtn || total <= 0)
+            return;
+        const double mbDone = received / 1024.0 / 1024.0;
+        const double mbTotal = total / 1024.0 / 1024.0;
+        m_updateBtn->setText(tr("下载 %.1f/%.1f MB").arg(mbDone, 0, 'f', 1).arg(mbTotal, 0, 'f', 1)); });
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, remoteVersion]()
+            {
+        const auto err = reply->error();
+        const QByteArray payload = reply->readAll();
+        reply->deleteLater();
+
+        if (err != QNetworkReply::NoError)
+        {
+            QMessageBox::warning(this, tr("下载失败"), reply->errorString());
+            resetUpdateButton();
+            return;
+        }
+
+        const QString workDir = ensureUpdateWorkDir();
+        if (workDir.isEmpty())
+        {
+            QMessageBox::warning(this, tr("更新失败"), tr("无法创建更新临时目录。"));
+            resetUpdateButton();
+            return;
+        }
+
+        const QString zipPath = QDir(workDir).filePath(QStringLiteral("update.zip"));
+        QFile zip(zipPath);
+        if (!zip.open(QIODevice::WriteOnly))
+        {
+            QMessageBox::warning(this, tr("更新失败"), tr("无法写入更新包：%1").arg(zip.errorString()));
+            resetUpdateButton();
+            return;
+        }
+        zip.write(payload);
+        zip.close();
+
+        if (!launchUpdater(zipPath))
+        {
+            QMessageBox::warning(this, tr("更新失败"), tr("无法启动更新程序，请检查权限。"));
+            resetUpdateButton();
+            return;
+        }
+
+        QMessageBox::information(this, tr("开始更新"),
+                                 tr("已下载版本 %1，程序即将退出并自动更新。").arg(remoteVersion.toString()));
+        QTimer::singleShot(300, qApp, &QCoreApplication::quit); });
+}
+
+QString MainWindow::psEscape(const QString &path) const
+{
+    QString native = QDir::toNativeSeparators(path);
+    native.replace("'", "''");
+    return QStringLiteral("'%1'").arg(native);
+}
+
+QString MainWindow::ensureUpdateWorkDir() const
+{
+    const QString base = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    if (base.isEmpty())
+    {
+        return {};
+    }
+    QDir dir(base);
+    const QString work = dir.filePath(QStringLiteral("ScriptToolboxUpdate_%1").arg(QDateTime::currentMSecsSinceEpoch()));
+    if (!dir.mkpath(work))
+    {
+        return {};
+    }
+    return work;
+}
+
+bool MainWindow::launchUpdater(const QString &zipPath)
+{
+    const QString targetDir = QCoreApplication::applicationDirPath();
+    const QString exeName = QFileInfo(QCoreApplication::applicationFilePath()).fileName();
+    const qint64 pid = QCoreApplication::applicationPid();
+
+    const QString workDir = QFileInfo(zipPath).absoluteDir().path();
+    const QString scriptPath = QDir(workDir).filePath(QStringLiteral("apply_update.ps1"));
+
+    QFile script(scriptPath);
+    if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    {
+        return false;
+    }
+
+    QTextStream out(&script);
+    out.setEncoding(QStringConverter::Utf8);
+    out << "$zip = " << psEscape(zipPath) << "\n";
+    out << "$target = " << psEscape(targetDir) << "\n";
+    out << "$exe = " << psEscape(exeName) << "\n";
+    out << "$pid = " << pid << "\n";
+    out << "$extractDir = Join-Path (Split-Path $zip -Parent) 'st_update_unpack'\n";
+    out << "if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }\n";
+    out << "while (Get-Process -Id $pid -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }\n";
+    out << "Expand-Archive -Path $zip -DestinationPath $extractDir -Force\n";
+    out << "robocopy $extractDir $target /E /NFL /NDL /NJH /NJS /NC /NS /NP\n";
+    out << "if ($LASTEXITCODE -gt 3) { exit $LASTEXITCODE }\n";
+    out << "Start-Process -FilePath (Join-Path $target $exe)\n";
+    out << "exit 0\n";
+    script.close();
+
+    QStringList args;
+    args << QStringLiteral("-NoProfile") << QStringLiteral("-ExecutionPolicy") << QStringLiteral("Bypass")
+         << QStringLiteral("-File") << scriptPath;
+    return QProcess::startDetached(QStringLiteral("powershell"), args);
 }
 
 void MainWindow::rebuildCategories()
