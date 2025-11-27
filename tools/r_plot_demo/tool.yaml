@@ -1,0 +1,33 @@
+id: "r_plot_demo"
+name: "R Plot Demo"
+version: "1.0"
+description: "Renders a ggplot2 PNG to demonstrate image output."
+tags:
+  - r
+  - plot
+  - demo
+
+env:
+  type: r
+  use_uv: false
+  interpreter: ""
+  dependencies:
+    - ggplot2
+
+command: "Rscript scripts/generate_plot.R"
+workdir: "."
+
+params:
+  - key: "title"
+    label: "Chart Title"
+    type: text
+    required: false
+    default: "Energy Tracking Example"
+  - key: "points"
+    label: "Sample Points"
+    type: int
+    required: false
+    default: 48
+    min: 12
+    max: 240
+    description: "Number of timesteps rendered in the lines."

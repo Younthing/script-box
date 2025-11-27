@@ -1,0 +1,34 @@
+id: "python_table_demo"
+name: "Python Table Demo"
+version: "1.0"
+description: "Outputs a synthetic KPI table as CSV and console preview."
+tags:
+  - python
+  - table
+  - demo
+
+env:
+  type: python
+  use_uv: true
+  interpreter: ""
+  dependencies:
+    - pandas
+
+command: "python scripts/generate_table.py"
+workdir: "."
+
+params:
+  - key: "rows"
+    label: "Row Count"
+    type: int
+    required: false
+    default: 6
+    min: 3
+    max: 32
+    description: "Controls the number of generated records."
+  - key: "title"
+    label: "Table Title"
+    type: text
+    required: false
+    default: "Quarterly KPI Overview"
+    description: "Printed in the log output header."

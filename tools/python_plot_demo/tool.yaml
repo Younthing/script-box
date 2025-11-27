@@ -1,0 +1,35 @@
+id: "python_plot_demo"
+name: "Python Plot Demo"
+version: "1.0"
+description: "Generates a PNG line chart for the demo viewer."
+tags:
+  - python
+  - plot
+  - demo
+
+env:
+  type: python
+  use_uv: true
+  interpreter: ""
+  dependencies:
+    - matplotlib
+    - numpy
+
+command: "python scripts/generate_plot.py"
+workdir: "."
+
+params:
+  - key: "title"
+    label: "Chart Title"
+    type: text
+    required: false
+    default: "Sensor Trend Example"
+    description: "Used as the Matplotlib figure title."
+  - key: "points"
+    label: "Sample Points"
+    type: int
+    required: false
+    default: 80
+    min: 16
+    max: 360
+    description: "Controls how many points are rendered per line."
