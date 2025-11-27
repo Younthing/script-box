@@ -1,7 +1,9 @@
 id: "r_table_demo"
-name: "R Table Demo"
+name: "R 表格示例"
+category: "数据"
+thumbnail: "cover.png"
 version: "1.0"
-description: "Creates a tibble with mock regional metrics and a CSV export."
+description: "创建区域指标的 tibble 表格并导出 CSV。"
 tags:
   - r
   - table

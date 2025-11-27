@@ -42,6 +42,8 @@ add_library(uilib STATIC
     src/ui/MainWindow.h
     src/ui/DynamicForm.cpp
     src/ui/DynamicForm.h
+    src/ui/ToolWindow.cpp
+    src/ui/ToolWindow.h
 )
 target_include_directories(uilib PUBLIC src)
 target_link_libraries(uilib PUBLIC Qt6::Widgets corelib)

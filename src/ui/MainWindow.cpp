@@ -1,37 +1,34 @@
 #include "MainWindow.h"
 
 #include "core/CoreService.h"
-#include "ui/DynamicForm.h"
-#include "core/LoggingBridge.h"
+#include "ui/ToolWindow.h"
 
-#include <QCoreApplication>
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QFileDialog>
+#include <QDir>
+#include <QFileInfo>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
-#include <QLineEdit>
 #include <QListWidget>
+#include <QListWidgetItem>
+#include <QListView>
+#include <QMessageBox>
 #include <QPushButton>
-#include <QTextEdit>
 #include <QVBoxLayout>
 #include <QWidget>
+
+namespace
+{
+const QString kAllCategory = QStringLiteral("全部");
+} // namespace
 
 MainWindow::MainWindow(CoreService *core, const QString &toolsRoot, QWidget *parent)
     : QMainWindow(parent)
     , m_core(core)
     , m_toolsRoot(toolsRoot)
-    , m_settings(QCoreApplication::organizationName(), QCoreApplication::applicationName())
 {
     buildUi();
 
     connect(m_core, &CoreService::scanFinished, this, &MainWindow::handleScanFinished);
-    connect(m_core, &CoreService::jobStarted, this, &MainWindow::handleJobStarted);
-    connect(m_core, &CoreService::jobOutput, this, &MainWindow::handleJobOutput);
-    connect(m_core, &CoreService::jobFinished, this, &MainWindow::handleJobFinished);
-    connect(m_core, &CoreService::envPreparing, this, &MainWindow::handleEnvPreparing);
-    connect(m_core, &CoreService::envFailed, this, &MainWindow::handleEnvFailed);
-    connect(m_core, &CoreService::envReady, this, &MainWindow::handleEnvReady);
 
     handleRefreshClicked();
 }
@@ -40,153 +37,58 @@ void MainWindow::buildUi()
 {
     auto *central = new QWidget(this);
     auto *layout = new QHBoxLayout(central);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(8);
 
-    m_toolList = new QListWidget(central);
-    layout->addWidget(m_toolList, 1);
+    m_categoryList = new QListWidget(central);
+    m_categoryList->setMaximumWidth(180);
+    layout->addWidget(m_categoryList);
 
     auto *right = new QWidget(central);
     auto *rightLayout = new QVBoxLayout(right);
+    rightLayout->setContentsMargins(0, 0, 0, 0);
+    rightLayout->setSpacing(6);
 
-    m_form = new DynamicForm(right);
-    rightLayout->addWidget(m_form, 2);
+    auto *toolbar = new QWidget(right);
+    auto *toolbarLayout = new QHBoxLayout(toolbar);
+    toolbarLayout->setContentsMargins(0, 0, 0, 0);
+    toolbarLayout->setSpacing(6);
 
-    // Advanced options trigger + summary
-    auto *advRow = new QWidget(right);
-    auto *advLayout = new QHBoxLayout(advRow);
-    advLayout->setContentsMargins(0, 0, 0, 0);
-    m_advBtn = new QPushButton(QStringLiteral("..."), advRow);
-    m_advBtn->setToolTip(tr("高级选项"));
-    m_advBtn->setFixedWidth(36);
-    m_advSummary = new QLabel(tr("使用工具默认配置"), advRow);
-    advLayout->addWidget(m_advBtn, 0, Qt::AlignLeft);
-    advLayout->addWidget(m_advSummary, 1);
-    advRow->setLayout(advLayout);
-    rightLayout->addWidget(advRow);
+    m_summaryLabel = new QLabel(tr("工具：0"), toolbar);
+    m_refreshBtn = new QPushButton(tr("刷新"), toolbar);
+    m_toggleViewBtn = new QPushButton(tr("切换列表/卡片"), toolbar);
 
-    auto *outputRow = new QWidget(right);
-    auto *outputLayout = new QHBoxLayout(outputRow);
-    outputLayout->setContentsMargins(0, 0, 0, 0);
-    m_outputDirEdit = new QLineEdit(outputRow);
-    m_outputDirEdit->setPlaceholderText(tr("Optional: choose run directory"));
-    auto *outputBtn = new QPushButton(tr("Choose Dir"), outputRow);
-    connect(outputBtn, &QPushButton::clicked, this, [this]() {
-        const QString dir = QFileDialog::getExistingDirectory(this, tr("Select Output Directory"));
-        if (!dir.isEmpty())
-        {
-            m_outputDirEdit->setText(dir);
-        }
-    });
-    outputLayout->addWidget(m_outputDirEdit);
-    outputLayout->addWidget(outputBtn);
-    rightLayout->addWidget(outputRow);
-    const QString savedOutput = m_settings.value(QStringLiteral("outputDir")).toString();
-    if (!savedOutput.isEmpty())
-    {
-        m_outputDirEdit->setText(savedOutput);
-    }
-    connect(m_outputDirEdit, &QLineEdit::textChanged, this, [this](const QString &text) {
-        m_settings.setValue(QStringLiteral("outputDir"), text);
-    });
+    toolbarLayout->addWidget(m_summaryLabel, 1);
+    toolbarLayout->addWidget(m_toggleViewBtn, 0);
+    toolbarLayout->addWidget(m_refreshBtn, 0);
+    toolbar->setLayout(toolbarLayout);
+    rightLayout->addWidget(toolbar, 0);
 
-    auto *buttonRow = new QWidget(right);
-    auto *buttonLayout = new QHBoxLayout(buttonRow);
-    buttonLayout->setContentsMargins(0, 0, 0, 0);
+    m_toolList = new QListWidget(right);
+    m_toolList->setResizeMode(QListView::Adjust);
+    m_toolList->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_toolList->setSpacing(8);
+    rightLayout->addWidget(m_toolList, 1);
 
-    m_runBtn = new QPushButton(tr("Run"), buttonRow);
-    m_refreshBtn = new QPushButton(tr("Refresh Tools"), buttonRow);
-    buttonLayout->addWidget(m_runBtn);
-    buttonLayout->addWidget(m_refreshBtn);
-    rightLayout->addWidget(buttonRow);
-
-    m_log = new QTextEdit(right);
-    m_log->setReadOnly(true);
-    rightLayout->addWidget(m_log, 1);
-
-    layout->addWidget(right, 2);
+    layout->addWidget(right, 1);
     setCentralWidget(central);
 
-    connect(m_runBtn, &QPushButton::clicked, this, &MainWindow::handleRunClicked);
     connect(m_refreshBtn, &QPushButton::clicked, this, &MainWindow::handleRefreshClicked);
-    connect(m_toolList, &QListWidget::currentRowChanged, this, &MainWindow::handleToolSelectionChanged);
-    connect(m_advBtn, &QPushButton::clicked, this, &MainWindow::handleAdvancedClicked);
-    connect(LoggingBridge::instance(), &LoggingBridge::logMessage, this, &MainWindow::handleLogMessage);
+    connect(m_categoryList, &QListWidget::currentRowChanged, this, &MainWindow::handleCategoryChanged);
+    connect(m_toolList, &QListWidget::itemDoubleClicked, this, &MainWindow::handleToolActivated);
+    connect(m_toggleViewBtn, &QPushButton::clicked, this, &MainWindow::handleToggleView);
 }
 
 void MainWindow::handleScanFinished(const ScanResultDTO &result)
 {
-    m_tools.clear();
-    m_toolList->clear();
-
     if (!result.ok())
     {
-        appendLog(QStringLiteral("Scan error: %1").arg(result.error), true);
+        QMessageBox::warning(this, tr("扫描失败"), result.error);
         return;
     }
-
-    for (const auto &tool : result.tools)
-    {
-        m_tools.append(tool);
-        m_toolList->addItem(QStringLiteral("%1 (%2)").arg(tool.name, tool.id));
-    }
-
-    if (!result.tools.isEmpty())
-    {
-        m_toolList->setCurrentRow(0);
-        loadTool(result.tools.first());
-    }
-}
-
-void MainWindow::handleJobStarted(const QString &toolId, const QString &runDirectory)
-{
-    appendLog(QStringLiteral("[%1] started, run dir: %2").arg(toolId, runDirectory));
-}
-
-void MainWindow::handleJobOutput(const QString &toolId, const QString &line, bool isError)
-{
-    appendLog(QStringLiteral("[%1] %2").arg(toolId, line), isError);
-}
-
-void MainWindow::handleJobFinished(const QString &toolId, int exitCode, const QString &message)
-{
-    appendLog(QStringLiteral("[%1] finished: %2 (%3)").arg(toolId).arg(exitCode).arg(message), exitCode != 0);
-}
-
-void MainWindow::handleEnvPreparing(const QString &toolId)
-{
-    appendLog(QStringLiteral("[%1] preparing environment...").arg(toolId));
-}
-
-void MainWindow::handleEnvFailed(const QString &toolId, const QString &message)
-{
-    appendLog(QStringLiteral("[%1] env failed: %2").arg(toolId, message), true);
-}
-
-void MainWindow::handleEnvReady(const QString &toolId, const QString &envPath)
-{
-    appendLog(QStringLiteral("[%1] env ready at %2").arg(toolId, envPath));
-}
-
-void MainWindow::handleRunClicked()
-{
-    int idx = m_toolList->currentRow();
-    if (idx < 0 || idx >= m_tools.size())
-    {
-        appendLog(QStringLiteral("No tool selected"), true);
-        return;
-    }
-
-    const ToolDTO tool = m_tools.at(idx);
-
-    RunRequestDTO req;
-    req.toolId = tool.id;
-    req.toolVersion = tool.version;
-    req.params = m_form->collectValues();
-    req.runDirectory = m_outputDirEdit->text();
-
-    const AdvOverride ov = m_advOverrides.value(tool.id, {});
-    req.interpreterOverride = ov.program;
-
-    m_core->runTool(m_toolsRoot, tool, req);
+    m_tools = result.tools;
+    rebuildCategories();
+    rebuildToolList();
 }
 
 void MainWindow::handleRefreshClicked()
@@ -194,142 +96,117 @@ void MainWindow::handleRefreshClicked()
     m_core->startScan(m_toolsRoot);
 }
 
-void MainWindow::handleToolSelectionChanged()
+void MainWindow::handleCategoryChanged()
 {
-    const int idx = m_toolList->currentRow();
-    if (idx < 0 || idx >= m_tools.size())
-    {
-        m_form->setParams({});
-        m_advSummary->setText(tr("使用工具默认配置"));
+    rebuildToolList();
+}
+
+void MainWindow::handleToolActivated(QListWidgetItem *item)
+{
+    if (!item)
         return;
-    }
-    loadTool(m_tools.at(idx));
-}
-
-void MainWindow::appendLog(const QString &text, bool isError)
-{
-    const QString line = isError ? QStringLiteral("<span style='color:red;'>%1</span>").arg(text) : text;
-    m_log->append(line);
-}
-
-void MainWindow::loadTool(const ToolDTO &tool)
-{
-    m_form->setParams(tool.params);
-    AdvOverride ov = m_advOverrides.value(tool.id, loadOverride(tool.id));
-    m_advOverrides.insert(tool.id, ov);
-    updateAdvSummary(tool, ov);
-}
-
-void MainWindow::handleAdvancedClicked()
-{
-    int idx = m_toolList->currentRow();
-    if (idx < 0 || idx >= m_tools.size())
+    const QString toolId = item->data(Qt::UserRole).toString();
+    for (const auto &tool : m_tools)
     {
-        appendLog(QStringLiteral("请选择一个工具后再调整高级选项"), true);
-        return;
-    }
-    const ToolDTO tool = m_tools.at(idx);
-    AdvOverride ov = m_advOverrides.value(tool.id, loadOverride(tool.id));
-
-    QDialog dialog(this);
-    dialog.setWindowTitle(tr("高级选项"));
-    auto *layout = new QVBoxLayout(&dialog);
-
-    auto *progRow = new QWidget(&dialog);
-    auto *progLayout = new QHBoxLayout(progRow);
-    progLayout->setContentsMargins(0, 0, 0, 0);
-    auto *progEdit = new QLineEdit(progRow);
-    progEdit->setPlaceholderText(tr("可选：指定解释器/可执行程序路径"));
-    progEdit->setText(ov.program);
-    auto *progBrowse = new QPushButton(tr("选择"), progRow);
-    connect(progBrowse, &QPushButton::clicked, &dialog, [this, progEdit]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("选择可执行文件"));
-        if (!path.isEmpty())
+        if (tool.id == toolId)
         {
-            progEdit->setText(path);
+            openToolWindow(tool);
+            break;
         }
-    });
-    progLayout->addWidget(new QLabel(tr("程序路径"), progRow));
-    progLayout->addWidget(progEdit, 1);
-    progLayout->addWidget(progBrowse);
-    progRow->setLayout(progLayout);
-    layout->addWidget(progRow);
-
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
-    layout->addWidget(buttons);
-    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
-
-    if (dialog.exec() == QDialog::Accepted)
-    {
-        ov.program = progEdit->text().trimmed();
-        m_advOverrides.insert(tool.id, ov);
-        saveOverride(tool.id, ov);
-        updateAdvSummary(tool, ov);
     }
 }
 
-void MainWindow::updateAdvSummary(const ToolDTO &tool, const AdvOverride &ov)
+void MainWindow::handleToggleView()
 {
-    Q_UNUSED(tool);
-    const QString text = ov.program.isEmpty() ? tr("程序: 默认") : tr("程序: %1").arg(ov.program);
-    m_advSummary->setText(text);
+    m_cardMode = !m_cardMode;
+    rebuildToolList();
 }
 
-MainWindow::AdvOverride MainWindow::loadOverride(const QString &toolId)
+void MainWindow::rebuildCategories()
 {
-    AdvOverride ov;
-    m_settings.beginGroup(QStringLiteral("toolOverrides/%1").arg(toolId));
-    ov.program = m_settings.value(QStringLiteral("program")).toString();
-    m_settings.endGroup();
-    return ov;
-}
-
-void MainWindow::saveOverride(const QString &toolId, const AdvOverride &ov)
-{
-    m_settings.beginGroup(QStringLiteral("toolOverrides/%1").arg(toolId));
-    m_settings.setValue(QStringLiteral("program"), ov.program);
-    m_settings.endGroup();
-}
-
-namespace
-{
-QString sanitizeLogHtml(const QString &text)
-{
-    QString safe = text;
-    safe.replace(QLatin1Char('&'), QStringLiteral("&amp;"));
-    safe.replace(QLatin1Char('<'), QStringLiteral("&lt;"));
-    safe.replace(QLatin1Char('>'), QStringLiteral("&gt;"));
-    safe.replace(QLatin1Char('\r'), QString());
-    safe.replace(QLatin1Char('\n'), QStringLiteral("<br/>"));
-    return safe;
-}
-}
-
-void MainWindow::handleLogMessage(int level, const QString &category, const QString &message)
-{
-    QString prefix;
-    switch (level)
+    m_categoryList->clear();
+    QStringList categories;
+    categories << kAllCategory;
+    for (const auto &tool : m_tools)
     {
-    case QtDebugMsg:
-        prefix = "[DEBUG]";
-        break;
-    case QtInfoMsg:
-        prefix = "[INFO]";
-        break;
-    case QtWarningMsg:
-        prefix = "<span style='color:#c97a00;'>[WARN]</span>";
-        break;
-    case QtCriticalMsg:
-    case QtFatalMsg:
-        prefix = "<span style='color:red;'>[ERROR]</span>";
-        break;
-    default:
-        prefix = "[LOG]";
-        break;
+        if (!categories.contains(tool.category))
+        {
+            categories << tool.category;
+        }
     }
-    const QString safeCategory = sanitizeLogHtml(category);
-    const QString safeMessage = sanitizeLogHtml(message);
-    const QString line = QStringLiteral("%1 %2 %3").arg(prefix, safeCategory, safeMessage);
-    m_log->append(line);
+    categories.sort();
+    for (const auto &c : categories)
+    {
+        m_categoryList->addItem(c);
+    }
+    m_categoryList->setCurrentRow(0);
+}
+
+QList<ToolDTO> MainWindow::filteredTools() const
+{
+    const QString selected = m_categoryList->currentItem() ? m_categoryList->currentItem()->text() : kAllCategory;
+    if (selected == kAllCategory)
+    {
+        return m_tools;
+    }
+    QList<ToolDTO> filtered;
+    for (const auto &tool : m_tools)
+    {
+        if (tool.category == selected)
+        {
+            filtered.append(tool);
+        }
+    }
+    return filtered;
+}
+
+QIcon MainWindow::loadIconFor(const ToolDTO &tool) const
+{
+    QString iconPath;
+    if (!tool.thumbnail.isEmpty())
+    {
+        iconPath = QDir(QDir(m_toolsRoot).filePath(tool.id)).filePath(tool.thumbnail);
+    }
+    if (iconPath.isEmpty() || !QFileInfo::exists(iconPath))
+    {
+        iconPath = QDir(m_toolsRoot).absoluteFilePath(QStringLiteral("../assets/tool_placeholder.png"));
+    }
+    return QIcon(iconPath);
+}
+
+void MainWindow::rebuildToolList()
+{
+    m_toolList->clear();
+    const QList<ToolDTO> display = filteredTools();
+
+    m_toolList->setViewMode(m_cardMode ? QListView::IconMode : QListView::ListMode);
+    if (m_cardMode)
+    {
+        m_toolList->setGridSize(QSize(220, 180));
+        m_toolList->setIconSize(QSize(200, 120));
+    }
+    else
+    {
+        m_toolList->setGridSize(QSize());
+        m_toolList->setIconSize(QSize(64, 64));
+    }
+
+    for (const auto &tool : display)
+    {
+        auto *item = new QListWidgetItem(loadIconFor(tool), QStringLiteral("%1\n%2").arg(tool.name, tool.description));
+        item->setData(Qt::UserRole, tool.id);
+        item->setToolTip(QStringLiteral("%1\n%2").arg(tool.name, tool.description));
+        m_toolList->addItem(item);
+    }
+
+    m_summaryLabel->setText(tr("工具：%1").arg(display.size()));
+}
+
+void MainWindow::openToolWindow(const ToolDTO &tool)
+{
+    auto *win = new ToolWindow(m_core, m_toolsRoot, tool, this);
+    win->setAttribute(Qt::WA_DeleteOnClose, true);
+    win->show();
+    win->raise();
+    win->activateWindow();
 }

@@ -102,6 +102,8 @@ ToolDTO ScanWorker::parseTool(const QString &toolDirPath, QString &error) const
         dto.name = toQString(root["name"], dto.id);
         dto.version = toQString(root["version"]);
         dto.description = toQString(root["description"]);
+        dto.category = toQString(root["category"], QStringLiteral("未分类"));
+        dto.thumbnail = toQString(root["thumbnail"]);
 
         if (root["tags"])
         {

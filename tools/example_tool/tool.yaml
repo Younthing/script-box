@@ -1,5 +1,7 @@
 id: "example_tool"
 name: "示例工具"
+category: "演示"
+thumbnail: "cover.png"
 version: "1.0"
 description: "用于扫描测试的示例工具"
 tags:

@@ -1,7 +1,9 @@
 id: "python_table_demo"
-name: "Python Table Demo"
+name: "Python 表格示例"
+category: "数据"
+thumbnail: "cover.png"
 version: "1.0"
-description: "Outputs a synthetic KPI table as CSV and console preview."
+description: "生成合成 KPI 表格，输出 CSV 并在控制台预览。"
 tags:
   - python
   - table

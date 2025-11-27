@@ -1,7 +1,9 @@
 id: "python_plot_demo"
-name: "Python Plot Demo"
+name: "Python 绘图示例"
+category: "可视化"
+thumbnail: "cover.png"
 version: "1.0"
-description: "Generates a PNG line chart for the demo viewer."
+description: "生成一张折线图 PNG，展示 Matplotlib 绘图流程。"
 tags:
   - python
   - plot

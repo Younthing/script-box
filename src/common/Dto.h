@@ -82,6 +82,8 @@ struct ToolDTO
     QString name;
     QString version;
     QString description;
+    QString category;
+    QString thumbnail;
     QStringList tags;
     RuntimeConfigDTO runtime;
     EnvConfigDTO env;

@@ -1,7 +1,9 @@
 id: "r_plot_demo"
-name: "R Plot Demo"
+name: "R 绘图示例"
+category: "可视化"
+thumbnail: "cover.png"
 version: "1.0"
-description: "Renders a ggplot2 PNG to demonstrate image output."
+description: "使用 ggplot2 渲染能耗趋势 PNG，演示图片输出。"
 tags:
   - r
   - plot
