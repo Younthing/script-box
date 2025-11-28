@@ -14,17 +14,19 @@
 namespace
 {
     QFile s_logFile;
+    QTextStream s_console(stdout);
 
-    void logLine(const QString &msg)
+    void emitMsg(const QString &msg)
     {
-        if (!s_logFile.isOpen())
+        s_console << msg << '\n';
+        s_console.flush();
+        if (s_logFile.isOpen())
         {
-            return;
+            QTextStream ts(&s_logFile);
+            ts.setEncoding(QStringConverter::Utf8);
+            ts << QDateTime::currentDateTime().toString(Qt::ISODate) << '\t' << msg << '\n';
+            ts.flush();
         }
-        QTextStream ts(&s_logFile);
-        ts.setEncoding(QStringConverter::Utf8);
-        ts << QDateTime::currentDateTime().toString(Qt::ISODate) << '\t' << msg << '\n';
-        ts.flush();
     }
 
     bool waitForPidExit(qint64 pid, int timeoutMs = 0)
@@ -97,7 +99,7 @@ namespace
                 QDir tp = QFileInfo(targetPath).dir();
                 if (!tp.exists() && !tp.mkpath(QStringLiteral(".")))
                 {
-                    logLine(QStringLiteral("Failed to create dir: %1").arg(tp.absolutePath()));
+                    emitMsg(QStringLiteral("Failed to create dir: %1").arg(tp.absolutePath()));
                     return false;
                 }
                 continue;
@@ -106,7 +108,7 @@ namespace
             QDir targetParent = QFileInfo(targetPath).dir();
             if (!targetParent.exists() && !targetParent.mkpath(QStringLiteral(".")))
             {
-                logLine(QStringLiteral("Failed to create dir: %1").arg(targetParent.absolutePath()));
+                emitMsg(QStringLiteral("Failed to create dir: %1").arg(targetParent.absolutePath()));
                 return false;
             }
 
@@ -116,7 +118,7 @@ namespace
             }
             if (!QFile::copy(fi.filePath(), targetPath))
             {
-                logLine(QStringLiteral("Copy failed: %1 -> %2").arg(fi.filePath(), targetPath));
+                emitMsg(QStringLiteral("Copy failed: %1 -> %2").arg(fi.filePath(), targetPath));
                 return false;
             }
         }
@@ -127,6 +129,8 @@ namespace
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
+    s_console.setEncoding(QStringConverter::Utf8);
+
     QString zipPath;
     QString targetDir;
     QString exeName;
@@ -174,6 +178,7 @@ int main(int argc, char *argv[])
 
     if (zipPath.isEmpty() || targetDir.isEmpty() || exeName.isEmpty() || pid <= 0)
     {
+        emitMsg(QStringLiteral("Usage: updater --zip <path> --target <dir> --exe <name> --pid <processId> [--log <path>]"));
         return 2;
     }
 
@@ -186,45 +191,49 @@ int main(int argc, char *argv[])
     QFileInfo logInfo(logPath);
     QDir().mkpath(logInfo.dir().absolutePath());
     s_logFile.setFileName(logPath);
-    s_logFile.open(QIODevice::Append | QIODevice::Text);
+    if (!s_logFile.open(QIODevice::Append | QIODevice::Text))
+    {
+        emitMsg(QStringLiteral("Warning: failed to open log file: %1").arg(logPath));
+    }
 
-    logLine(QStringLiteral("Updater started"));
-    logLine(QStringLiteral("Zip: %1").arg(zipPath));
-    logLine(QStringLiteral("Target: %1").arg(targetDir));
-    logLine(QStringLiteral("Exe: %1").arg(exeName));
-    logLine(QStringLiteral("PID: %1").arg(pid));
+    emitMsg(QStringLiteral("Updater started"));
+    emitMsg(QStringLiteral("Log: %1").arg(logPath));
+    emitMsg(QStringLiteral("Zip: %1").arg(zipPath));
+    emitMsg(QStringLiteral("Target: %1").arg(targetDir));
+    emitMsg(QStringLiteral("Exe: %1").arg(exeName));
+    emitMsg(QStringLiteral("PID: %1").arg(pid));
 
     if (!waitForPidExit(pid, 60000))
     {
-        logLine(QStringLiteral("Timeout waiting for pid %1").arg(pid));
+        emitMsg(QStringLiteral("Timeout waiting for pid %1").arg(pid));
         return 3;
     }
 
     const QString extractDir = QFileInfo(zipPath).absoluteDir().filePath(QStringLiteral("st_update_unpack"));
     QDir().mkpath(extractDir);
 
-    logLine(QStringLiteral("Expanding archive"));
+    emitMsg(QStringLiteral("Expanding archive"));
     if (!runExpandArchive(zipPath, extractDir))
     {
-        logLine(QStringLiteral("Expand-Archive failed"));
+        emitMsg(QStringLiteral("Expand-Archive failed"));
         return 4;
     }
 
-    logLine(QStringLiteral("Copying files"));
+    emitMsg(QStringLiteral("Copying files"));
     if (!copyRecursive(extractDir, targetDir))
     {
-        logLine(QStringLiteral("Copy failed"));
+        emitMsg(QStringLiteral("Copy failed"));
         return 5;
     }
 
-    logLine(QStringLiteral("Cleanup temp"));
+    emitMsg(QStringLiteral("Cleanup temp"));
     QDir(extractDir).removeRecursively();
     QFile::remove(zipPath);
 
     const QString nextExe = QDir(targetDir).filePath(exeName);
-    logLine(QStringLiteral("Launching new app: %1").arg(nextExe));
+    emitMsg(QStringLiteral("Launching new app: %1").arg(nextExe));
     QProcess::startDetached(nextExe);
 
-    logLine(QStringLiteral("Update completed"));
+    emitMsg(QStringLiteral("Update completed"));
     return 0;
 }
