@@ -128,6 +128,47 @@ namespace
         }
         return true;
     }
+
+    bool isSafeTempPath(const QString &path)
+    {
+        const QString tempRoot = QDir::cleanPath(QDir::tempPath());
+        QString canon = QFileInfo(path).canonicalFilePath();
+        if (canon.isEmpty())
+        {
+            canon = QFileInfo(path).absoluteFilePath();
+        }
+        canon = QDir::cleanPath(canon);
+        return !canon.isEmpty() && canon.startsWith(tempRoot, Qt::CaseInsensitive);
+    }
+
+    void scheduleDelayedDeleteDir(const QString &path)
+    {
+        // Defer deletion to avoid conflicts while the updater is still running from the path.
+        if (!isSafeTempPath(path))
+        {
+            emitMsg(QStringLiteral("Skip delayed delete (unsafe path): %1").arg(path));
+            return;
+        }
+        const QString nativePath = QDir::toNativeSeparators(path);
+        QStringList args;
+        args << QStringLiteral("/C")
+             << QStringLiteral("ping -n 3 127.0.0.1 >NUL & rmdir /S /Q \"%1\"").arg(nativePath);
+        QProcess::startDetached(QStringLiteral("cmd"), args);
+    }
+
+    void scheduleDelayedDeleteFile(const QString &path)
+    {
+        if (!isSafeTempPath(path))
+        {
+            emitMsg(QStringLiteral("Skip delayed file delete (unsafe path): %1").arg(path));
+            return;
+        }
+        const QString nativePath = QDir::toNativeSeparators(path);
+        QStringList args;
+        args << QStringLiteral("/C")
+             << QStringLiteral("ping -n 3 127.0.0.1 >NUL & del /F /Q \"%1\"").arg(nativePath);
+        QProcess::startDetached(QStringLiteral("cmd"), args);
+    }
 } // namespace
 
 int main(int argc, char *argv[])
@@ -298,13 +339,25 @@ int main(int argc, char *argv[])
     emitMsg(QStringLiteral("Cleanup temp"));
     if (!runningFromExtract)
     {
-        QDir(extractDir).removeRecursively();
+        if (!QDir(extractDir).removeRecursively())
+        {
+            emitMsg(QStringLiteral("Failed to remove extract dir: %1").arg(extractDir));
+            scheduleDelayedDeleteDir(extractDir);
+        }
     }
     else
     {
         emitMsg(QStringLiteral("Skip removing extract dir because updater is running from it."));
+        scheduleDelayedDeleteDir(extractDir);
     }
-    QFile::remove(zipPath);
+    if (!zipPath.isEmpty() && QFileInfo::exists(zipPath))
+    {
+        if (!QFile::remove(zipPath))
+        {
+            emitMsg(QStringLiteral("Failed to remove zip: %1").arg(zipPath));
+            scheduleDelayedDeleteFile(zipPath);
+        }
+    }
 
     const QString nextExe = QDir(targetDir).filePath(exeName);
     emitMsg(QStringLiteral("Launching new app: %1").arg(nextExe));
