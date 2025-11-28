@@ -34,3 +34,25 @@ This repo now ships a Windows release automatically from GitHub Actions and prod
   ```
 
 - The resulting zip is `dist/ScriptToolbox.zip`; the feed JSON can be generated manually with the same `{version,url,notes}` shape used in CI.
+
+## If GitHub Actions is unavailable (manual release)
+
+1) Build release locally (example):
+   ```powershell
+   cmake -S . -B build -G "MinGW Makefiles" -D CMAKE_BUILD_TYPE=Release -DAPP_VERSION=0.0.1 -DUPDATE_FEED_URL=https://github.com/Younthing/script-box/releases/latest/download/update.json -D CMAKE_PREFIX_PATH=D:/app/qt/6.10.1/mingw_64
+   cmake --build build --config Release
+   ```
+2) Package:
+   ```powershell
+   pwsh -File scripts/package.ps1 -QtDir D:/app/qt/6.10.1/mingw_64 -BuildDir build -OutputDir dist/ScriptToolbox -Zip -SkipBuild
+   ```
+3) Generate update feed (set the final download URL you will publish):
+   ```powershell
+   pwsh -File scripts/make-update-feed.ps1 -Version 0.0.1 -ZipUrl https://github.com/Younthing/script-box/releases/download/v0.0.1/ScriptToolbox.zip -Notes "Manual release 0.0.1"
+   ```
+4) Publish to GitHub Release using GitHub CLI (no web UI):
+   ```powershell
+   gh auth login   # if not already authenticated
+   gh release create v0.0.1 dist/ScriptToolbox.zip dist/update.json --title "Script Toolbox v0.0.1" --notes "Manual release 0.0.1"
+   ```
+   If you prefer another tool, upload `dist/ScriptToolbox.zip` and `dist/update.json` to the `v0.0.1` release assets via any HTTPS client.

@@ -62,3 +62,6 @@ set_target_properties(uilib PROPERTIES AUTOMOC ON AUTOUIC ON AUTORCC ON)
 
 add_executable(simpleqt WIN32 main.cpp)
 target_link_libraries(simpleqt PRIVATE Qt6::Widgets uilib corelib)
+
+add_executable(updater src/updater/main.cpp)
+target_link_libraries(updater PRIVATE Qt6::Core)

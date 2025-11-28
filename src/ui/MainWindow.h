@@ -41,7 +41,7 @@ private:
     void openToolWindow(const ToolDTO &tool);
     void checkForUpdates(bool manual);
     void downloadUpdate(const QUrl &url, const QVersionNumber &remoteVersion);
-    bool launchUpdater(const QString &zipPath);
+    bool launchUpdater(const QString &zipPath, const QString &logPath);
     QString resolveUpdateUrl() const;
     QString ensureUpdateWorkDir() const;
     QString psEscape(const QString &path) const;

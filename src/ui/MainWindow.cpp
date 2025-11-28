@@ -285,11 +285,11 @@ void MainWindow::downloadUpdate(const QUrl &url, const QVersionNumber &remoteVer
             return;
         }
 
-        const QString workDir = ensureUpdateWorkDir();
-        if (workDir.isEmpty())
-        {
-            QMessageBox::warning(this, tr("更新失败"), tr("无法创建更新临时目录。"));
-            resetUpdateButton();
+    const QString workDir = ensureUpdateWorkDir();
+    if (workDir.isEmpty())
+    {
+        QMessageBox::warning(this, tr("更新失败"), tr("无法创建更新临时目录。"));
+        resetUpdateButton();
             return;
         }
 
@@ -304,7 +304,9 @@ void MainWindow::downloadUpdate(const QUrl &url, const QVersionNumber &remoteVer
         zip.write(payload);
         zip.close();
 
-        if (!launchUpdater(zipPath))
+        const QString logPath = QDir(workDir).filePath(QStringLiteral("update.log"));
+
+        if (!launchUpdater(zipPath, logPath))
         {
             QMessageBox::warning(this, tr("更新失败"), tr("无法启动更新程序，请检查权限。"));
             resetUpdateButton();
@@ -312,7 +314,9 @@ void MainWindow::downloadUpdate(const QUrl &url, const QVersionNumber &remoteVer
         }
 
         QMessageBox::information(this, tr("开始更新"),
-                                 tr("已下载版本 %1，程序即将退出并自动更新。").arg(remoteVersion.toString()));
+                                 tr("已下载版本 %1，程序即将退出并自动更新。\n\n更新日志：%2")
+                                     .arg(remoteVersion.toString(),
+                                          QDir::toNativeSeparators(logPath)));
         QTimer::singleShot(300, qApp, &QCoreApplication::quit); });
 }
 
@@ -339,41 +343,28 @@ QString MainWindow::ensureUpdateWorkDir() const
     return work;
 }
 
-bool MainWindow::launchUpdater(const QString &zipPath)
+bool MainWindow::launchUpdater(const QString &zipPath, const QString &logPath)
 {
     const QString targetDir = QCoreApplication::applicationDirPath();
     const QString exeName = QFileInfo(QCoreApplication::applicationFilePath()).fileName();
     const qint64 pid = QCoreApplication::applicationPid();
 
     const QString workDir = QFileInfo(zipPath).absoluteDir().path();
-    const QString scriptPath = QDir(workDir).filePath(QStringLiteral("apply_update.ps1"));
-
-    QFile script(scriptPath);
-    if (!script.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    // Prefer bundled updater executable to avoid script locks.
+    const QString updaterPath = QDir(targetDir).filePath(QStringLiteral("updater.exe"));
+    if (!QFileInfo::exists(updaterPath))
     {
         return false;
     }
 
-    QTextStream out(&script);
-    out.setEncoding(QStringConverter::Utf8);
-    out << "$zip = " << psEscape(zipPath) << "\n";
-    out << "$target = " << psEscape(targetDir) << "\n";
-    out << "$exe = " << psEscape(exeName) << "\n";
-    out << "$pid = " << pid << "\n";
-    out << "$extractDir = Join-Path (Split-Path $zip -Parent) 'st_update_unpack'\n";
-    out << "if (Test-Path $extractDir) { Remove-Item $extractDir -Recurse -Force }\n";
-    out << "while (Get-Process -Id $pid -ErrorAction SilentlyContinue) { Start-Sleep -Milliseconds 500 }\n";
-    out << "Expand-Archive -Path $zip -DestinationPath $extractDir -Force\n";
-    out << "robocopy $extractDir $target /E /NFL /NDL /NJH /NJS /NC /NS /NP\n";
-    out << "if ($LASTEXITCODE -gt 3) { exit $LASTEXITCODE }\n";
-    out << "Start-Process -FilePath (Join-Path $target $exe)\n";
-    out << "exit 0\n";
-    script.close();
-
     QStringList args;
-    args << QStringLiteral("-NoProfile") << QStringLiteral("-ExecutionPolicy") << QStringLiteral("Bypass")
-         << QStringLiteral("-File") << scriptPath;
-    return QProcess::startDetached(QStringLiteral("powershell"), args);
+    args << QStringLiteral("--zip") << zipPath;
+    args << QStringLiteral("--target") << targetDir;
+    args << QStringLiteral("--exe") << exeName;
+    args << QStringLiteral("--pid") << QString::number(pid);
+    args << QStringLiteral("--log") << logPath;
+
+    return QProcess::startDetached(updaterPath, args);
 }
 
 void MainWindow::rebuildCategories()

@@ -54,6 +54,13 @@ if (-not (Test-Path $windeploy)) {
 }
 & $windeploy --release --dir $OutputDir $exePath
 
+# updater executable
+$updaterSrc = Join-Path $BuildDir "updater.exe"
+if (-not (Test-Path $updaterSrc)) {
+    throw "updater.exe not found at $updaterSrc. Build the 'updater' target."
+}
+Copy-Item $updaterSrc (Join-Path $OutputDir "updater.exe") -Force
+
 # Copy app resources
 Copy-Item (Join-Path $SourceDir "assets") $OutputDir -Recurse -Force
 
