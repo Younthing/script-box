@@ -128,16 +128,6 @@ namespace
         }
         return true;
     }
-
-    void scheduleDelayedDelete(const QString &path)
-    {
-        // Try to delete after this process exits to clean up temp unpack dir when running from it.
-        const QString nativePath = QDir::toNativeSeparators(path);
-        QStringList args;
-        args << QStringLiteral("/C")
-             << QStringLiteral("ping -n 3 127.0.0.1 >NUL & rmdir /S /Q \"%1\"").arg(nativePath);
-        QProcess::startDetached(QStringLiteral("cmd"), args);
-    }
 } // namespace
 
 int main(int argc, char *argv[])
@@ -313,7 +303,6 @@ int main(int argc, char *argv[])
     else
     {
         emitMsg(QStringLiteral("Skip removing extract dir because updater is running from it."));
-        scheduleDelayedDelete(extractDir);
     }
     QFile::remove(zipPath);
 
