@@ -114,7 +114,11 @@ namespace
 
             if (QFile::exists(targetPath))
             {
-                QFile::remove(targetPath);
+                if (!QFile::remove(targetPath))
+                {
+                    emitMsg(QStringLiteral("Failed to remove existing file: %1").arg(targetPath));
+                    return false;
+                }
             }
             if (!QFile::copy(fi.filePath(), targetPath))
             {
@@ -123,6 +127,16 @@ namespace
             }
         }
         return true;
+    }
+
+    void scheduleDelayedDelete(const QString &path)
+    {
+        // Try to delete after this process exits to clean up temp unpack dir when running from it.
+        const QString nativePath = QDir::toNativeSeparators(path);
+        QStringList args;
+        args << QStringLiteral("/C")
+             << QStringLiteral("ping -n 3 127.0.0.1 >NUL & rmdir /S /Q \"%1\"").arg(nativePath);
+        QProcess::startDetached(QStringLiteral("cmd"), args);
     }
 } // namespace
 
@@ -136,6 +150,7 @@ int main(int argc, char *argv[])
     QString exeName;
     qint64 pid = 0;
     QString logPath;
+    bool skipExtract = false;
 
     for (int i = 1; i < argc; ++i)
     {
@@ -174,11 +189,15 @@ int main(int argc, char *argv[])
         {
             next(logPath);
         }
+        else if (arg == QStringLiteral("--skip-extract"))
+        {
+            skipExtract = true;
+        }
     }
 
     if (zipPath.isEmpty() || targetDir.isEmpty() || exeName.isEmpty() || pid <= 0)
     {
-        emitMsg(QStringLiteral("Usage: updater --zip <path> --target <dir> --exe <name> --pid <processId> [--log <path>]"));
+        emitMsg(QStringLiteral("Usage: updater --zip <path> --target <dir> --exe <name> --pid <processId> [--log <path>] [--skip-extract]"));
         return 2;
     }
 
@@ -203,6 +222,22 @@ int main(int argc, char *argv[])
     emitMsg(QStringLiteral("Exe: %1").arg(exeName));
     emitMsg(QStringLiteral("PID: %1").arg(pid));
 
+    auto canonicalPath = [](const QString &path)
+    {
+        QFileInfo fi(path);
+        QString c = fi.canonicalFilePath();
+        if (c.isEmpty())
+        {
+            c = fi.absoluteFilePath();
+        }
+        return QDir::cleanPath(c);
+    };
+
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QString appCanonical = canonicalPath(appDir);
+    const QString targetCanonical = canonicalPath(targetDir);
+    const bool runningFromTarget = (!targetCanonical.isEmpty() && appCanonical == targetCanonical);
+
     if (!waitForPidExit(pid, 60000))
     {
         emitMsg(QStringLiteral("Timeout waiting for pid %1").arg(pid));
@@ -210,13 +245,57 @@ int main(int argc, char *argv[])
     }
 
     const QString extractDir = QFileInfo(zipPath).absoluteDir().filePath(QStringLiteral("st_update_unpack"));
-    QDir().mkpath(extractDir);
+    const QString extractCanonical = canonicalPath(extractDir);
+    const bool runningFromExtract = (!extractCanonical.isEmpty() && appCanonical == extractCanonical);
 
-    emitMsg(QStringLiteral("Expanding archive"));
-    if (!runExpandArchive(zipPath, extractDir))
+    if (skipExtract)
     {
-        emitMsg(QStringLiteral("Expand-Archive failed"));
-        return 4;
+        emitMsg(QStringLiteral("Skip extracting archive (handoff mode)"));
+        if (!QDir(extractDir).exists())
+        {
+            emitMsg(QStringLiteral("Extract directory not found: %1").arg(extractDir));
+            return 4;
+        }
+    }
+    else
+    {
+        QDir().mkpath(extractDir);
+        emitMsg(QStringLiteral("Expanding archive"));
+        if (!runExpandArchive(zipPath, extractDir))
+        {
+            emitMsg(QStringLiteral("Expand-Archive failed"));
+            return 4;
+        }
+    }
+
+    if (!skipExtract && runningFromTarget)
+    {
+        const QString stagedUpdater = QDir(extractDir).filePath(QStringLiteral("updater.exe"));
+        if (QFileInfo::exists(stagedUpdater))
+        {
+            QStringList relaunchArgs;
+            relaunchArgs << QStringLiteral("--zip") << zipPath;
+            relaunchArgs << QStringLiteral("--target") << targetDir;
+            relaunchArgs << QStringLiteral("--exe") << exeName;
+            relaunchArgs << QStringLiteral("--pid") << QString::number(pid);
+            if (!logPath.isEmpty())
+            {
+                relaunchArgs << QStringLiteral("--log") << logPath;
+            }
+            relaunchArgs << QStringLiteral("--skip-extract");
+
+            emitMsg(QStringLiteral("Handoff to extracted updater to avoid locked files: %1").arg(stagedUpdater));
+            if (QProcess::startDetached(stagedUpdater, relaunchArgs))
+            {
+                emitMsg(QStringLiteral("Handoff succeeded; exiting current updater."));
+                return 0;
+            }
+            emitMsg(QStringLiteral("Handoff failed; continuing in current updater."));
+        }
+        else
+        {
+            emitMsg(QStringLiteral("Extracted updater not found at %1").arg(stagedUpdater));
+        }
     }
 
     emitMsg(QStringLiteral("Copying files"));
@@ -227,7 +306,15 @@ int main(int argc, char *argv[])
     }
 
     emitMsg(QStringLiteral("Cleanup temp"));
-    QDir(extractDir).removeRecursively();
+    if (!runningFromExtract)
+    {
+        QDir(extractDir).removeRecursively();
+    }
+    else
+    {
+        emitMsg(QStringLiteral("Skip removing extract dir because updater is running from it."));
+        scheduleDelayedDelete(extractDir);
+    }
     QFile::remove(zipPath);
 
     const QString nextExe = QDir(targetDir).filePath(exeName);
